@@ -1,0 +1,130 @@
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: swap;
+  src: url("/assets/fonts/BricolageGrotesque.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("/assets/fonts/Fraunces.woff2") format("woff2");
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Pure Black Theme - high contrast for outdoor use */
+    --background: 0 0 0; /* #000000 pure black */
+    --foreground: 1 0 0; /* #ffffff pure white */
+
+    --card: 0.08 0 0; /* #111 dark gray */
+    --card-foreground: 1 0 0;
+
+    --popover: 0.08 0 0;
+    --popover-foreground: 1 0 0;
+
+    --primary: 0.98 0.21 109; /* #FAFF00 neon yellow */
+    --primary-foreground: 0 0 0; /* black text on yellow */
+
+    --secondary: 0.15 0 0; /* #222 */
+    --secondary-foreground: 1 0 0;
+
+    --muted: 0.12 0 0;
+    --muted-foreground: 0.65 0 0; /* gray text */
+
+    --accent: 0.98 0.21 109;
+    --accent-foreground: 0 0 0;
+
+    --destructive: 0.47 0.23 17; /* deep red */
+    --destructive-foreground: 1 0 0;
+
+    --border: 0.25 0.03 109; /* dim yellow border */
+    --input: 0.15 0 0;
+    --ring: 0.98 0.21 109;
+
+    --radius: 0.75rem;
+
+    /* Scoring button colors */
+    --btn-green: 0.86 0.17 145; /* #90EE90 light green */
+    --btn-blue: 0.83 0.09 220; /* #87CEEB sky blue */
+    --btn-orange: 0.68 0.19 58; /* #FF8C00 vibrant orange */
+    --btn-pink: 0.87 0.07 7; /* #FFB6C1 light pink */
+    --btn-purple: 0.78 0.1 320; /* #DDA0DD light purple */
+    --btn-red: 0.47 0.23 17; /* #DC143C deep red */
+    --btn-gray: 0.45 0 0; /* #666 gray */
+    --btn-amber: 0.82 0.18 85; /* amber undo */
+    --btn-legal: 0.38 0.12 145; /* dark green legal ball */
+
+    /* charts */
+    --chart-1: 0.98 0.21 109;
+    --chart-2: 0.83 0.09 220;
+    --chart-3: 0.68 0.19 58;
+    --chart-4: 0.47 0.23 17;
+    --chart-5: 0.86 0.17 145;
+
+    /* sidebar */
+    --sidebar: 0.08 0 0;
+    --sidebar-foreground: 1 0 0;
+    --sidebar-primary: 0.98 0.21 109;
+    --sidebar-primary-foreground: 0 0 0;
+    --sidebar-accent: 0.15 0 0;
+    --sidebar-accent-foreground: 1 0 0;
+    --sidebar-border: 0.25 0.03 109;
+    --sidebar-ring: 0.98 0.21 109;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+}
+
+@keyframes score-pop {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.88);
+  }
+  65% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.score-pop {
+  animation: score-pop 0.22s ease-out;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #scorecard-print,
+  #scorecard-print * {
+    visibility: visible;
+  }
+  #scorecard-print {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: white;
+    color: black;
+    padding: 20px;
+    font-family: sans-serif;
+  }
+}
