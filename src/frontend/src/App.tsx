@@ -43,7 +43,8 @@ type View =
   | "setup"
   | "scoring"
   | "innings-switch"
-  | "result";
+  | "result"
+  | "tournament";
 
 interface BatsmanState {
   player: Player;
@@ -53,6 +54,44 @@ interface BatsmanState {
   isOut: boolean;
   wicketType?: WicketType;
 }
+// ──────────────────────────────────────────────────────────────
+// TOURNAMENT TYPES
+// ──────────────────────────────────────────────────────────────
+
+interface PoolMatch {
+  id: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  homeRuns?: number;
+  awayRuns?: number;
+  homeBalls?: number;
+  awayBalls?: number;
+  totalOvers: number;
+  status: "scheduled" | "completed" | "tied";
+  note?: string;
+}
+
+interface TournamentPool {
+  id: string;
+  name: string;
+  teamIds: string[];
+}
+
+interface Tournament {
+  id: string;
+  name: string;
+  pools: TournamentPool[];
+  matches: PoolMatch[];
+  createdAt: string;
+}
+
+const EMPTY_TOURNAMENT: Tournament = {
+  id: "1",
+  name: "CCB Tournament",
+  pools: [],
+  matches: [],
+  createdAt: "",
+};
 
 interface InningsState {
   battingTeam: Team;
@@ -758,6 +797,7 @@ interface HomeViewProps {
   onSetup: () => void;
   onTeams: () => void;
   onEditTeams: () => void;
+  onTournament: () => void;
   pastMatches: MatchRecord[];
 }
 
@@ -765,9 +805,33 @@ function HomeView({
   onSetup,
   onTeams,
   onEditTeams,
+  onTournament,
   pastMatches,
 }: HomeViewProps) {
   const [showHistory, setShowHistory] = useState(false);
+  const [pwdDialog, setPwdDialog] = useState<{
+    open: boolean;
+    target: "edit" | "tournament" | null;
+  }>({ open: false, target: null });
+  const [pwdInput, setPwdInput] = useState("");
+  const [_pwdError, setPwdError] = useState(false);
+
+  function requestProtected(target: "edit" | "tournament") {
+    setPwdInput("");
+    setPwdError(false);
+    setPwdDialog({ open: true, target });
+  }
+
+  function submitPassword() {
+    if (pwdInput === "Shahzad@99") {
+      const t = pwdDialog.target;
+      setPwdDialog({ open: false, target: null });
+      if (t === "edit") onEditTeams();
+      if (t === "tournament") onTournament();
+    } else {
+      setPwdError(true);
+    }
+  }
 
   return (
     <Page>
@@ -819,11 +883,21 @@ function HomeView({
         <button
           type="button"
           data-ocid="home.edit_teams.secondary_button"
-          onClick={onEditTeams}
+          onClick={() => requestProtected("edit")}
           className="w-full max-w-sm h-14 rounded-xl font-body font-semibold text-base text-white/80 border-2 border-white/30 bg-transparent cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
         >
           <Pencil size={18} />
           ٹیموں کو ترمیم کریں / EDIT TEAMS
+        </button>
+
+        <button
+          type="button"
+          data-ocid="home.tournament.secondary_button"
+          onClick={() => requestProtected("tournament")}
+          className="w-full max-w-sm h-14 rounded-xl font-body font-semibold text-base text-primary border-2 border-primary/60 bg-transparent cursor-pointer hover:bg-primary/10 transition-colors flex items-center justify-center gap-2"
+        >
+          <Trophy size={18} />
+          TOURNAMENT / ٹورنامنٹ
         </button>
 
         <button
@@ -884,6 +958,52 @@ function HomeView({
       </main>
 
       <Footer dev />
+
+      {/* Password Dialog */}
+      {pwdDialog.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
+          <div className="w-full max-w-xs rounded-2xl border border-primary/40 bg-zinc-950 p-6 flex flex-col gap-4">
+            <h2 className="text-primary font-display font-bold text-lg text-center">
+              🔒 Password درکار ہے
+            </h2>
+            <p className="text-white/60 text-sm text-center">
+              یہ سیکشن صرف ایڈمن کے لیے ہے
+            </p>
+            <input
+              type="password"
+              value={pwdInput}
+              onChange={(e) => {
+                setPwdInput(e.target.value);
+                setPwdError(false);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && submitPassword()}
+              placeholder="پاس ورڈ داخل کریں"
+              className="w-full rounded-lg border border-white/20 bg-black text-white px-4 py-3 text-base outline-none focus:border-primary text-center tracking-widest"
+            />
+            {_pwdError && (
+              <p className="text-red-400 text-sm text-center">
+                غلط پاس ورڈ -- دوبارہ کوشش کریں
+              </p>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPwdDialog({ open: false, target: null })}
+                className="flex-1 h-11 rounded-xl border border-white/20 text-white/60 font-semibold text-sm"
+              >
+                منسوخ
+              </button>
+              <button
+                type="button"
+                onClick={submitPassword}
+                className="flex-1 h-11 rounded-xl bg-primary text-black font-bold text-sm"
+              >
+                داخل ہوں
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Page>
   );
 }
@@ -1966,6 +2086,907 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// TOURNAMENT HELPER FUNCTIONS
+// ──────────────────────────────────────────────────────────────
+
+function calcNRR(
+  teamId: string,
+  matches: PoolMatch[],
+  poolTeamIds: string[],
+): number {
+  let runsScored = 0;
+  let oversFaced = 0;
+  let runsConceded = 0;
+  let oversBowled = 0;
+
+  for (const m of matches) {
+    if (m.status === "scheduled") continue;
+    const isHome = m.homeTeamId === teamId;
+    const isAway = m.awayTeamId === teamId;
+    if (!isHome && !isAway) continue;
+    if (
+      !poolTeamIds.includes(m.homeTeamId) ||
+      !poolTeamIds.includes(m.awayTeamId)
+    )
+      continue;
+
+    const totalBalls = m.totalOvers * 6;
+    if (isHome) {
+      runsScored += m.homeRuns ?? 0;
+      oversFaced += (m.homeBalls ?? totalBalls) / 6;
+      runsConceded += m.awayRuns ?? 0;
+      oversBowled += (m.awayBalls ?? totalBalls) / 6;
+    } else {
+      runsScored += m.awayRuns ?? 0;
+      oversFaced += (m.awayBalls ?? totalBalls) / 6;
+      runsConceded += m.homeRuns ?? 0;
+      oversBowled += (m.homeBalls ?? totalBalls) / 6;
+    }
+  }
+
+  if (oversFaced === 0 || oversBowled === 0) return 0;
+  return runsScored / oversFaced - runsConceded / oversBowled;
+}
+
+interface TeamStanding {
+  teamId: string;
+  teamName: string;
+  played: number;
+  won: number;
+  lost: number;
+  tied: number;
+  points: number;
+  nrr: number;
+}
+
+function calcPoolStandings(
+  pool: TournamentPool,
+  matches: PoolMatch[],
+  teams: Team[],
+): TeamStanding[] {
+  const standings: TeamStanding[] = pool.teamIds.map((tid) => {
+    const team = teams.find((t) => t.id === tid);
+    return {
+      teamId: tid,
+      teamName: team?.name ?? tid,
+      played: 0,
+      won: 0,
+      lost: 0,
+      tied: 0,
+      points: 0,
+      nrr: 0,
+    };
+  });
+
+  const poolMatches = matches.filter(
+    (m) =>
+      m.status !== "scheduled" &&
+      pool.teamIds.includes(m.homeTeamId) &&
+      pool.teamIds.includes(m.awayTeamId),
+  );
+
+  for (const m of poolMatches) {
+    const home = standings.find((s) => s.teamId === m.homeTeamId);
+    const away = standings.find((s) => s.teamId === m.awayTeamId);
+    if (!home || !away) continue;
+    home.played++;
+    away.played++;
+    if (m.status === "tied") {
+      home.tied++;
+      away.tied++;
+    } else if ((m.homeRuns ?? 0) > (m.awayRuns ?? 0)) {
+      home.won++;
+      home.points += 2;
+      away.lost++;
+    } else {
+      away.won++;
+      away.points += 2;
+      home.lost++;
+    }
+  }
+
+  for (const s of standings) {
+    s.nrr = calcNRR(s.teamId, matches, pool.teamIds);
+  }
+
+  return standings.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    return b.nrr - a.nrr;
+  });
+}
+
+// ──────────────────────────────────────────────────────────────
+// TOURNAMENT VIEW
+// ──────────────────────────────────────────────────────────────
+
+interface ScoreDialogState {
+  open: boolean;
+  matchId: string;
+  homeRuns: string;
+  homeBalls: string;
+  awayRuns: string;
+  awayBalls: string;
+  totalOvers: string;
+}
+
+function TournamentView({
+  onBack,
+  tournament,
+  onUpdate,
+  teams,
+}: {
+  onBack: () => void;
+  tournament: Tournament;
+  onUpdate: (t: Tournament) => void;
+  teams: Team[];
+}) {
+  const [activeTab, setActiveTab] = useState<
+    "setup" | "schedule" | "standings"
+  >("setup");
+  const [scoreDialog, setScoreDialog] = useState<ScoreDialogState>({
+    open: false,
+    matchId: "",
+    homeRuns: "",
+    homeBalls: "",
+    awayRuns: "",
+    awayBalls: "",
+    totalOvers: "6",
+  });
+
+  function updateTournament(patch: Partial<Tournament>) {
+    const updated = { ...tournament, ...patch };
+    onUpdate(updated);
+  }
+
+  function addPool() {
+    if (tournament.pools.length >= 4) return;
+    const names = ["A", "B", "C", "D"];
+    const usedNames = tournament.pools.map((p) => p.name);
+    const nextName = names.find((n) => !usedNames.includes(n)) ?? "A";
+    const newPool: TournamentPool = {
+      id: Date.now().toString(),
+      name: nextName,
+      teamIds: [],
+    };
+    updateTournament({ pools: [...tournament.pools, newPool] });
+  }
+
+  function deletePool(poolId: string) {
+    updateTournament({
+      pools: tournament.pools.filter((p) => p.id !== poolId),
+      matches: tournament.matches.filter(
+        (m) =>
+          !tournament.pools
+            .find((p) => p.id === poolId)
+            ?.teamIds.includes(m.homeTeamId),
+      ),
+    });
+  }
+
+  function updatePoolName(poolId: string, name: string) {
+    updateTournament({
+      pools: tournament.pools.map((p) =>
+        p.id === poolId ? { ...p, name } : p,
+      ),
+    });
+  }
+
+  function addTeamToPool(poolId: string, teamId: string) {
+    // remove from other pools first
+    const pools = tournament.pools.map((p) => ({
+      ...p,
+      teamIds: p.teamIds.filter((id) => id !== teamId),
+    }));
+    const target = pools.find((p) => p.id === poolId);
+    if (!target || target.teamIds.length >= 5) return;
+    updateTournament({
+      pools: pools.map((p) =>
+        p.id === poolId ? { ...p, teamIds: [...p.teamIds, teamId] } : p,
+      ),
+    });
+  }
+
+  function removeTeamFromPool(poolId: string, teamId: string) {
+    updateTournament({
+      pools: tournament.pools.map((p) =>
+        p.id === poolId
+          ? { ...p, teamIds: p.teamIds.filter((id) => id !== teamId) }
+          : p,
+      ),
+    });
+  }
+
+  function addMatch(poolId: string) {
+    const pool = tournament.pools.find((p) => p.id === poolId);
+    if (!pool || pool.teamIds.length < 2) return;
+    const newMatch: PoolMatch = {
+      id: Date.now().toString(),
+      homeTeamId: pool.teamIds[0],
+      awayTeamId: pool.teamIds[1],
+      totalOvers: 6,
+      status: "scheduled",
+    };
+    updateTournament({ matches: [...tournament.matches, newMatch] });
+  }
+
+  function deleteMatch(matchId: string) {
+    updateTournament({
+      matches: tournament.matches.filter((m) => m.id !== matchId),
+    });
+  }
+
+  function updateMatchTeam(
+    matchId: string,
+    field: "homeTeamId" | "awayTeamId",
+    teamId: string,
+  ) {
+    updateTournament({
+      matches: tournament.matches.map((m) =>
+        m.id === matchId ? { ...m, [field]: teamId } : m,
+      ),
+    });
+  }
+
+  function openScoreDialog(m: PoolMatch) {
+    setScoreDialog({
+      open: true,
+      matchId: m.id,
+      homeRuns: m.homeRuns?.toString() ?? "",
+      homeBalls: m.homeBalls?.toString() ?? "",
+      awayRuns: m.awayRuns?.toString() ?? "",
+      awayBalls: m.awayBalls?.toString() ?? "",
+      totalOvers: m.totalOvers?.toString() ?? "6",
+    });
+  }
+
+  function saveScore() {
+    const { matchId, homeRuns, homeBalls, awayRuns, awayBalls, totalOvers } =
+      scoreDialog;
+    const hr = Number.parseInt(homeRuns) || 0;
+    const hb = Number.parseInt(homeBalls) || Number.parseInt(totalOvers) * 6;
+    const ar = Number.parseInt(awayRuns) || 0;
+    const ab = Number.parseInt(awayBalls) || Number.parseInt(totalOvers) * 6;
+    const ov = Number.parseInt(totalOvers) || 6;
+    const status: PoolMatch["status"] = hr === ar ? "tied" : "completed";
+    updateTournament({
+      matches: tournament.matches.map((m) =>
+        m.id === matchId
+          ? {
+              ...m,
+              homeRuns: hr,
+              homeBalls: hb,
+              awayRuns: ar,
+              awayBalls: ab,
+              totalOvers: ov,
+              status,
+            }
+          : m,
+      ),
+    });
+    setScoreDialog((prev) => ({ ...prev, open: false }));
+  }
+
+  const teamsInAnyPool = tournament.pools.flatMap((p) => p.teamIds);
+
+  return (
+    <Page>
+      <header className="pt-8 pb-4 px-4">
+        <div className="flex items-center gap-3 mb-4">
+          <button
+            type="button"
+            data-ocid="tournament.back.button"
+            onClick={onBack}
+            className="h-10 w-10 rounded-lg border border-white/20 bg-transparent text-white/80 flex items-center justify-center cursor-pointer hover:bg-white/10 transition-colors"
+          >
+            <Home size={18} />
+          </button>
+          <div className="flex-1">
+            <h1
+              className="font-display font-bold text-primary text-xl tracking-widest uppercase"
+              style={{ textShadow: "0 0 20px rgba(250,255,0,0.4)" }}
+            >
+              TOURNAMENT
+            </h1>
+            <p className="text-white/50 text-xs font-body">ٹورنامنٹ مینجمنٹ</p>
+          </div>
+        </div>
+
+        {/* Tournament Name */}
+        <input
+          type="text"
+          data-ocid="tournament.name.input"
+          value={tournament.name}
+          onChange={(e) => updateTournament({ name: e.target.value })}
+          className="w-full bg-transparent border border-primary/40 rounded-xl px-4 py-3 text-white font-body font-semibold text-lg focus:outline-none focus:border-primary"
+          placeholder="Tournament Name / ٹورنامنٹ کا نام"
+        />
+      </header>
+
+      {/* Tab Bar */}
+      <div className="flex border-b border-white/10 px-4">
+        {(["setup", "schedule", "standings"] as const).map((tab) => {
+          const labels: Record<string, string> = {
+            setup: "سیٹ اپ",
+            schedule: "شیڈول",
+            standings: "اسٹینڈنگز",
+          };
+          return (
+            <button
+              key={tab}
+              type="button"
+              data-ocid={`tournament.${tab}.tab`}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-3 text-sm font-body font-semibold transition-colors ${
+                activeTab === tab
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-white/50 hover:text-white/80"
+              }`}
+            >
+              {labels[tab]}
+            </button>
+          );
+        })}
+      </div>
+
+      <main className="flex-1 overflow-auto px-4 py-4">
+        {/* ── SETUP TAB ── */}
+        {activeTab === "setup" && (
+          <div className="space-y-4">
+            {tournament.pools.length === 0 && (
+              <p className="text-white/40 text-center py-8 font-body text-sm">
+                کوئی پول نہیں۔ نیچے بٹن دبا کر پول شامل کریں۔
+              </p>
+            )}
+            {tournament.pools.map((pool) => {
+              const availableTeams = teams.filter(
+                (t) =>
+                  !teamsInAnyPool.includes(t.id) || pool.teamIds.includes(t.id),
+              );
+              return (
+                <div
+                  key={pool.id}
+                  data-ocid="tournament.pool.card"
+                  className="border border-primary/30 rounded-xl p-4 bg-primary/5"
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-primary font-display font-bold text-sm">
+                      POOL
+                    </span>
+                    <input
+                      type="text"
+                      data-ocid="tournament.pool_name.input"
+                      value={pool.name}
+                      onChange={(e) => updatePoolName(pool.id, e.target.value)}
+                      className="w-16 bg-transparent border border-primary/40 rounded-lg px-2 py-1 text-primary font-display font-bold text-lg text-center focus:outline-none focus:border-primary"
+                      maxLength={3}
+                    />
+                    <div className="flex-1" />
+                    <button
+                      type="button"
+                      data-ocid="tournament.pool.delete_button"
+                      onClick={() => deletePool(pool.id)}
+                      className="h-8 w-8 rounded-lg border border-red-500/40 text-red-400 flex items-center justify-center cursor-pointer hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
+                  {/* Team list */}
+                  <div className="space-y-2 mb-3">
+                    {pool.teamIds.map((tid) => {
+                      const t = teams.find((x) => x.id === tid);
+                      return (
+                        <div
+                          key={tid}
+                          className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2"
+                        >
+                          <Shield size={14} className="text-primary/60" />
+                          <span className="flex-1 text-white font-body text-sm">
+                            {t?.name ?? tid}
+                          </span>
+                          <button
+                            type="button"
+                            data-ocid="tournament.team.delete_button"
+                            onClick={() => removeTeamFromPool(pool.id, tid)}
+                            className="text-red-400 hover:text-red-300 cursor-pointer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {pool.teamIds.length === 0 && (
+                      <p className="text-white/30 text-xs font-body text-center py-2">
+                        کوئی ٹیم نہیں — نیچے سے ٹیم منتخب کریں
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Add team dropdown */}
+                  {pool.teamIds.length < 5 && (
+                    <select
+                      data-ocid="tournament.team.select"
+                      className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white/80 font-body text-sm focus:outline-none focus:border-primary"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value)
+                          addTeamToPool(pool.id, e.target.value);
+                      }}
+                    >
+                      <option value="">+ ٹیم شامل کریں</option>
+                      {availableTeams
+                        .filter((t) => !pool.teamIds.includes(t.id))
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                  {pool.teamIds.length >= 5 && (
+                    <p className="text-white/30 text-xs font-body text-center">
+                      زیادہ سے زیادہ 5 ٹیمیں فی پول
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+
+            {tournament.pools.length < 4 && (
+              <button
+                type="button"
+                data-ocid="tournament.add_pool.button"
+                onClick={addPool}
+                className="w-full h-12 rounded-xl border-2 border-dashed border-primary/40 text-primary font-body font-semibold text-sm cursor-pointer hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus size={16} />
+                پول شامل کریں / Add Pool
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* ── SCHEDULE TAB ── */}
+        {activeTab === "schedule" && (
+          <div className="space-y-6">
+            {tournament.pools.length === 0 && (
+              <p className="text-white/40 text-center py-8 font-body text-sm">
+                پہلے سیٹ اپ میں پول بنائیں
+              </p>
+            )}
+            {tournament.pools.map((pool) => {
+              const poolMatches = tournament.matches.filter(
+                (m) =>
+                  pool.teamIds.includes(m.homeTeamId) &&
+                  pool.teamIds.includes(m.awayTeamId),
+              );
+              return (
+                <div key={pool.id}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-primary font-display font-bold text-base tracking-wider">
+                      POOL {pool.name}
+                    </h2>
+                    {pool.teamIds.length >= 2 && (
+                      <button
+                        type="button"
+                        data-ocid="tournament.add_match.button"
+                        onClick={() => addMatch(pool.id)}
+                        className="h-8 px-3 rounded-lg border border-primary/50 text-primary text-xs font-body font-semibold cursor-pointer hover:bg-primary/10 transition-colors flex items-center gap-1"
+                      >
+                        <Plus size={12} />
+                        میچ شامل کریں
+                      </button>
+                    )}
+                  </div>
+                  {poolMatches.length === 0 && (
+                    <p className="text-white/30 text-xs font-body py-3 text-center border border-dashed border-white/10 rounded-lg">
+                      کوئی میچ نہیں
+                    </p>
+                  )}
+                  <div className="space-y-3">
+                    {poolMatches.map((m, idx) => {
+                      const homeTeam = teams.find((t) => t.id === m.homeTeamId);
+                      const awayTeam = teams.find((t) => t.id === m.awayTeamId);
+                      const statusColor =
+                        m.status === "completed"
+                          ? "text-green-400"
+                          : m.status === "tied"
+                            ? "text-yellow-400"
+                            : "text-white/40";
+                      const statusLabel =
+                        m.status === "completed"
+                          ? "مکمل"
+                          : m.status === "tied"
+                            ? "ٹائی"
+                            : "شیڈول";
+                      return (
+                        <div
+                          key={m.id}
+                          data-ocid={`tournament.match.item.${idx + 1}`}
+                          className="border border-white/10 rounded-xl p-3 bg-white/3 space-y-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`text-xs font-body font-semibold ${statusColor}`}
+                            >
+                              {statusLabel}
+                            </span>
+                            <div className="flex-1" />
+                            <button
+                              type="button"
+                              data-ocid={`tournament.match.delete_button.${idx + 1}`}
+                              onClick={() => deleteMatch(m.id)}
+                              className="text-red-400/60 hover:text-red-400 cursor-pointer"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                          {/* Team selectors */}
+                          <div className="flex items-center gap-2">
+                            <select
+                              data-ocid="tournament.match_home.select"
+                              className="flex-1 bg-black border border-white/20 rounded-lg px-2 py-1.5 text-white font-body text-xs focus:outline-none focus:border-primary"
+                              value={m.homeTeamId}
+                              onChange={(e) =>
+                                updateMatchTeam(
+                                  m.id,
+                                  "homeTeamId",
+                                  e.target.value,
+                                )
+                              }
+                            >
+                              {pool.teamIds.map((tid) => {
+                                const t = teams.find((x) => x.id === tid);
+                                return (
+                                  <option key={tid} value={tid}>
+                                    {t?.name ?? tid}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <span className="text-white/40 font-body text-xs">
+                              vs
+                            </span>
+                            <select
+                              data-ocid="tournament.match_away.select"
+                              className="flex-1 bg-black border border-white/20 rounded-lg px-2 py-1.5 text-white font-body text-xs focus:outline-none focus:border-primary"
+                              value={m.awayTeamId}
+                              onChange={(e) =>
+                                updateMatchTeam(
+                                  m.id,
+                                  "awayTeamId",
+                                  e.target.value,
+                                )
+                              }
+                            >
+                              {pool.teamIds.map((tid) => {
+                                const t = teams.find((x) => x.id === tid);
+                                return (
+                                  <option key={tid} value={tid}>
+                                    {t?.name ?? tid}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+                          {/* Score display */}
+                          {m.status !== "scheduled" && (
+                            <div className="text-white/70 font-body text-xs text-center">
+                              {homeTeam?.name}: {m.homeRuns ?? 0}/
+                              {Math.floor(
+                                (m.homeBalls ?? m.totalOvers * 6) / 6,
+                              )}
+                              .{(m.homeBalls ?? m.totalOvers * 6) % 6} ov
+                              {" · "}
+                              {awayTeam?.name}: {m.awayRuns ?? 0}/
+                              {Math.floor(
+                                (m.awayBalls ?? m.totalOvers * 6) / 6,
+                              )}
+                              .{(m.awayBalls ?? m.totalOvers * 6) % 6} ov
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            data-ocid="tournament.enter_score.button"
+                            onClick={() => openScoreDialog(m)}
+                            className="w-full h-9 rounded-lg border border-primary/40 text-primary text-xs font-body font-semibold cursor-pointer hover:bg-primary/10 transition-colors"
+                          >
+                            {m.status === "scheduled"
+                              ? "سکور درج کریں / Enter Score"
+                              : "سکور ترمیم کریں / Edit Score"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── STANDINGS TAB ── */}
+        {activeTab === "standings" && (
+          <div className="space-y-6">
+            {tournament.pools.length === 0 && (
+              <p className="text-white/40 text-center py-8 font-body text-sm">
+                پہلے سیٹ اپ میں پول بنائیں
+              </p>
+            )}
+            {tournament.pools.map((pool) => {
+              const standings = calcPoolStandings(
+                pool,
+                tournament.matches,
+                teams,
+              );
+              return (
+                <div key={pool.id}>
+                  <h2 className="text-primary font-display font-bold text-base tracking-wider mb-3">
+                    POOL {pool.name} — اسٹینڈنگز
+                  </h2>
+                  <div className="overflow-x-auto rounded-xl border border-white/10">
+                    <table className="w-full text-xs font-body">
+                      <thead>
+                        <tr className="border-b border-white/10 bg-white/5">
+                          <th className="text-left text-white/50 font-semibold px-3 py-2">
+                            #
+                          </th>
+                          <th className="text-left text-white/50 font-semibold px-3 py-2">
+                            ٹیم
+                          </th>
+                          <th className="text-center text-white/50 font-semibold px-2 py-2">
+                            P
+                          </th>
+                          <th className="text-center text-green-400/70 font-semibold px-2 py-2">
+                            W
+                          </th>
+                          <th className="text-center text-red-400/70 font-semibold px-2 py-2">
+                            L
+                          </th>
+                          <th className="text-center text-yellow-400/70 font-semibold px-2 py-2">
+                            T
+                          </th>
+                          <th className="text-center text-primary/80 font-semibold px-2 py-2">
+                            Pts
+                          </th>
+                          <th className="text-center text-white/50 font-semibold px-2 py-2">
+                            NRR
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {standings.map((s, i) => (
+                          <tr
+                            key={s.teamId}
+                            data-ocid={`tournament.standings.item.${i + 1}`}
+                            className={`border-b border-white/5 ${i === 0 ? "bg-primary/5" : ""}`}
+                          >
+                            <td className="px-3 py-2 text-white/40">{i + 1}</td>
+                            <td className="px-3 py-2 text-white font-semibold max-w-24 truncate">
+                              {s.teamName}
+                            </td>
+                            <td className="px-2 py-2 text-center text-white/60">
+                              {s.played}
+                            </td>
+                            <td className="px-2 py-2 text-center text-green-400">
+                              {s.won}
+                            </td>
+                            <td className="px-2 py-2 text-center text-red-400">
+                              {s.lost}
+                            </td>
+                            <td className="px-2 py-2 text-center text-yellow-400">
+                              {s.tied}
+                            </td>
+                            <td className="px-2 py-2 text-center text-primary font-bold">
+                              {s.points}
+                            </td>
+                            <td
+                              className={`px-2 py-2 text-center font-mono ${s.nrr >= 0 ? "text-green-400" : "text-red-400"}`}
+                            >
+                              {s.nrr >= 0 ? "+" : ""}
+                              {s.nrr.toFixed(3)}
+                            </td>
+                          </tr>
+                        ))}
+                        {standings.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={8}
+                              className="text-center text-white/30 py-4"
+                            >
+                              کوئی ٹیم نہیں
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-white/25 text-xs font-body mt-2 text-center">
+                    NRR = (Runs Scored/Overs Faced) - (Runs Conceded/Overs
+                    Bowled)
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+
+      {/* Score Entry Dialog */}
+      <Dialog
+        open={scoreDialog.open}
+        onOpenChange={(open) => setScoreDialog((prev) => ({ ...prev, open }))}
+      >
+        <DialogContent className="bg-black border border-primary/30 text-white max-w-sm mx-auto">
+          <DialogHeader>
+            <DialogTitle className="text-primary font-display tracking-wider">
+              سکور درج کریں / Enter Score
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {(() => {
+              const m = tournament.matches.find(
+                (x) => x.id === scoreDialog.matchId,
+              );
+              const homeTeam = teams.find((t) => t.id === m?.homeTeamId);
+              const awayTeam = teams.find((t) => t.id === m?.awayTeamId);
+              return (
+                <>
+                  <div>
+                    <label
+                      htmlFor="sd-total-overs"
+                      className="text-white/60 text-xs font-body block mb-1"
+                    >
+                      اوورز / Total Overs
+                    </label>
+                    <input
+                      id="sd-total-overs"
+                      type="number"
+                      data-ocid="tournament.score_dialog.total_overs.input"
+                      value={scoreDialog.totalOvers}
+                      onChange={(e) =>
+                        setScoreDialog((prev) => ({
+                          ...prev,
+                          totalOvers: e.target.value,
+                        }))
+                      }
+                      className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-white font-body focus:outline-none focus:border-primary"
+                      min={1}
+                      max={50}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="sd-home-runs"
+                        className="text-white/60 text-xs font-body block mb-1"
+                      >
+                        {homeTeam?.name ?? "Home"} — رنز
+                      </label>
+                      <input
+                        id="sd-home-runs"
+                        type="number"
+                        data-ocid="tournament.score_dialog.home_runs.input"
+                        value={scoreDialog.homeRuns}
+                        onChange={(e) =>
+                          setScoreDialog((prev) => ({
+                            ...prev,
+                            homeRuns: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-white font-body focus:outline-none focus:border-primary"
+                        min={0}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="sd-home-balls"
+                        className="text-white/60 text-xs font-body block mb-1"
+                      >
+                        {homeTeam?.name ?? "Home"} — گیندیں
+                      </label>
+                      <input
+                        id="sd-home-balls"
+                        type="number"
+                        data-ocid="tournament.score_dialog.home_balls.input"
+                        value={scoreDialog.homeBalls}
+                        onChange={(e) =>
+                          setScoreDialog((prev) => ({
+                            ...prev,
+                            homeBalls: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-white font-body focus:outline-none focus:border-primary"
+                        placeholder={`${Number.parseInt(scoreDialog.totalOvers || "6") * 6}`}
+                        min={1}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="sd-away-runs"
+                        className="text-white/60 text-xs font-body block mb-1"
+                      >
+                        {awayTeam?.name ?? "Away"} — رنز
+                      </label>
+                      <input
+                        id="sd-away-runs"
+                        type="number"
+                        data-ocid="tournament.score_dialog.away_runs.input"
+                        value={scoreDialog.awayRuns}
+                        onChange={(e) =>
+                          setScoreDialog((prev) => ({
+                            ...prev,
+                            awayRuns: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-white font-body focus:outline-none focus:border-primary"
+                        min={0}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="sd-away-balls"
+                        className="text-white/60 text-xs font-body block mb-1"
+                      >
+                        {awayTeam?.name ?? "Away"} — گیندیں
+                      </label>
+                      <input
+                        id="sd-away-balls"
+                        type="number"
+                        data-ocid="tournament.score_dialog.away_balls.input"
+                        value={scoreDialog.awayBalls}
+                        onChange={(e) =>
+                          setScoreDialog((prev) => ({
+                            ...prev,
+                            awayBalls: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-white font-body focus:outline-none focus:border-primary"
+                        placeholder={`${Number.parseInt(scoreDialog.totalOvers || "6") * 6}`}
+                        min={1}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-white/30 text-xs font-body text-center">
+                    {Number.parseInt(scoreDialog.homeRuns || "0") ===
+                      Number.parseInt(scoreDialog.awayRuns || "0") &&
+                    scoreDialog.homeRuns !== ""
+                      ? "⚠️ برابری — ٹائی میچ"
+                      : ""}
+                  </p>
+                </>
+              );
+            })()}
+          </div>
+          <DialogFooter className="gap-2">
+            <button
+              type="button"
+              data-ocid="tournament.score_dialog.cancel_button"
+              onClick={() =>
+                setScoreDialog((prev) => ({ ...prev, open: false }))
+              }
+              className="flex-1 h-10 rounded-lg border border-white/20 text-white/60 font-body text-sm cursor-pointer hover:bg-white/5 transition-colors"
+            >
+              منسوخ
+            </button>
+            <button
+              type="button"
+              data-ocid="tournament.score_dialog.save_button"
+              onClick={saveScore}
+              className="flex-1 h-10 rounded-lg bg-primary text-black font-body font-bold text-sm cursor-pointer hover:bg-primary/80 transition-colors"
+            >
+              محفوظ کریں
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Footer />
+    </Page>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // APP ROOT
 // ──────────────────────────────────────────────────────────────
 
@@ -1981,13 +3002,23 @@ export default function App() {
   const [currentInningsNum, setCurrentInningsNum] = useState<1 | 2>(1);
   const [currentMatch, setCurrentMatch] = useState<MatchRecord | null>(null);
   const [pastMatches, setPastMatches] = useState<MatchRecord[]>([]);
+  const [tournament, setTournament] = useState<Tournament>(EMPTY_TOURNAMENT);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem("ccb_past_matches");
       if (saved) setPastMatches(JSON.parse(saved));
+      const savedT = localStorage.getItem("ccb_tournament");
+      if (savedT) setTournament(JSON.parse(savedT));
     } catch {}
   }, []);
+
+  function handleUpdateTournament(t: Tournament) {
+    setTournament(t);
+    try {
+      localStorage.setItem("ccb_tournament", JSON.stringify(t));
+    } catch {}
+  }
 
   function handleStartMatch(teamA: Team, teamB: Team, overs: number) {
     setSetupTeamA(teamA);
@@ -2051,6 +3082,7 @@ export default function App() {
             onSetup={() => setView("setup")}
             onTeams={() => setView("teams")}
             onEditTeams={() => setShowEditTeams(true)}
+            onTournament={() => setView("tournament")}
             pastMatches={pastMatches}
           />
         )}
@@ -2098,6 +3130,16 @@ export default function App() {
               setView("home");
               setCurrentMatch(null);
             }}
+          />
+        )}
+
+        {view === "tournament" && (
+          <TournamentView
+            key="tournament"
+            onBack={() => setView("home")}
+            tournament={tournament}
+            onUpdate={handleUpdateTournament}
+            teams={teams}
           />
         )}
       </AnimatePresence>
