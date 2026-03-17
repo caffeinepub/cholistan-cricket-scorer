@@ -13,6 +13,7 @@ import {
   Plus,
   Printer,
   RotateCcw,
+  Share2,
   Shield,
   Trash2,
   Trophy,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useState } from "react";
+import AnnouncementSection from "./components/AnnouncementSection";
 
 // ──────────────────────────────────────────────────────────────
 // TYPES
@@ -69,6 +71,8 @@ interface PoolMatch {
   totalOvers: number;
   status: "scheduled" | "completed" | "tied";
   note?: string;
+  date?: string;
+  time?: string;
 }
 
 interface TournamentPool {
@@ -815,6 +819,7 @@ function HomeView({
   }>({ open: false, target: null });
   const [pwdInput, setPwdInput] = useState("");
   const [_pwdError, setPwdError] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   function requestProtected(target: "edit" | "tournament") {
     setPwdInput("");
@@ -838,9 +843,11 @@ function HomeView({
       {/* Header */}
       <header className="pt-10 pb-6 px-6 text-center">
         <div className="flex justify-center mb-4">
-          <div className="w-16 h-16 rounded-full border-2 border-primary flex items-center justify-center text-3xl">
-            🏏
-          </div>
+          <img
+            src="/assets/uploads/1773769089361-1.png"
+            alt="CCB SCORING PRO"
+            className="w-16 h-16 rounded-full object-cover border-2 border-primary"
+          />
         </div>
         <h1
           className="font-display font-bold text-primary text-3xl sm:text-4xl tracking-widest uppercase leading-tight"
@@ -858,8 +865,84 @@ function HomeView({
       {/* Divider */}
       <div className="mx-6 h-px bg-primary/20" />
 
+      <AnnouncementSection />
+
       {/* Action Buttons */}
       <main className="flex-1 flex flex-col items-center gap-4 px-6 py-8">
+        {/* Share & Download Card */}
+        <div
+          className="w-full max-w-sm rounded-2xl p-4"
+          style={{
+            background: "linear-gradient(135deg, #0a0a0a 0%, #0f1a00 100%)",
+            border: "1.5px solid oklch(var(--p))",
+            boxShadow: "0 0 22px oklch(var(--p) / 0.35)",
+          }}
+        >
+          <p className="text-center font-display font-bold text-xs tracking-[0.2em] text-primary/80 uppercase mb-3">
+            Share &amp; Download
+          </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              data-ocid="home.copy_link.button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(window.location.href);
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 2000);
+                } catch {
+                  /* ignore */
+                }
+              }}
+              className="flex-1 h-11 rounded-xl font-body font-semibold text-sm cursor-pointer transition-all flex items-center justify-center gap-2"
+              style={{
+                background: linkCopied
+                  ? "oklch(var(--p) / 0.15)"
+                  : "transparent",
+                border: "1.5px solid oklch(var(--p) / 0.5)",
+                color: linkCopied
+                  ? "oklch(var(--p))"
+                  : "rgba(255,255,255,0.75)",
+              }}
+            >
+              {linkCopied ? "✓ COPIED!" : "📋 COPY LINK"}
+            </button>
+            <button
+              type="button"
+              data-ocid="home.share.button"
+              onClick={async () => {
+                try {
+                  if (navigator.share) {
+                    await navigator.share({
+                      title: "CCB SCORING PRO",
+                      text: "Download CCB Live Cricket Scoring App 🏏\nFast Live Score & Tournament Updates",
+                      url: window.location.href,
+                    });
+                  } else {
+                    window.open(
+                      `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\nFast Live Score & Tournament Updates\n${window.location.href}`)}`,
+                      "_blank",
+                    );
+                  }
+                } catch {
+                  window.open(
+                    `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\nFast Live Score & Tournament Updates\n${window.location.href}`)}`,
+                    "_blank",
+                  );
+                }
+              }}
+              className="flex-1 h-11 rounded-xl font-body font-semibold text-sm cursor-pointer transition-all flex items-center justify-center gap-2"
+              style={{
+                background: "oklch(var(--p) / 0.12)",
+                border: "1.5px solid oklch(var(--p) / 0.5)",
+                color: "oklch(var(--p))",
+              }}
+            >
+              <Share2 size={15} />
+              SHARE
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           data-ocid="home.start_match.primary_button"
@@ -964,10 +1047,10 @@ function HomeView({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
           <div className="w-full max-w-xs rounded-2xl border border-primary/40 bg-zinc-950 p-6 flex flex-col gap-4">
             <h2 className="text-primary font-display font-bold text-lg text-center">
-              🔒 Password درکار ہے
+              🔒 Admin Password Required
             </h2>
             <p className="text-white/60 text-sm text-center">
-              یہ سیکشن صرف ایڈمن کے لیے ہے
+              This section is for Admin only
             </p>
             <input
               type="password"
@@ -977,12 +1060,12 @@ function HomeView({
                 setPwdError(false);
               }}
               onKeyDown={(e) => e.key === "Enter" && submitPassword()}
-              placeholder="پاس ورڈ داخل کریں"
+              placeholder="Enter Password"
               className="w-full rounded-lg border border-white/20 bg-black text-white px-4 py-3 text-base outline-none focus:border-primary text-center tracking-widest"
             />
             {_pwdError && (
               <p className="text-red-400 text-sm text-center">
-                غلط پاس ورڈ -- دوبارہ کوشش کریں
+                Wrong password -- please try again
               </p>
             )}
             <div className="flex gap-3">
@@ -991,14 +1074,14 @@ function HomeView({
                 onClick={() => setPwdDialog({ open: false, target: null })}
                 className="flex-1 h-11 rounded-xl border border-white/20 text-white/60 font-semibold text-sm"
               >
-                منسوخ
+                Cancel
               </button>
               <button
                 type="button"
                 onClick={submitPassword}
                 className="flex-1 h-11 rounded-xl bg-primary text-black font-bold text-sm"
               >
-                داخل ہوں
+                Enter
               </button>
             </div>
           </div>
@@ -1417,7 +1500,7 @@ function SetupView({ onBack, onStart, teams }: SetupViewProps) {
               ⏱ Total Overs
             </p>
             <div className="flex gap-2 flex-wrap">
-              {[5, 6, 7, 8, 9, 10].map((ov) => (
+              {[3, 4, 5, 6, 7, 8, 9, 10].map((ov) => (
                 <button
                   type="button"
                   key={ov}
@@ -1486,15 +1569,15 @@ function ScoringView({
   onInningsEnd,
 }: ScoringViewProps) {
   const [undoStack, setUndoStack] = useState<InningsState[]>([]);
+  const [bowlerName, setBowlerName] = useState(innings.bowlingTeam.name);
+  const [bowlerDlg, setBowlerDlg] = useState(false);
+  const [bowlerInput, setBowlerInput] = useState("");
   const [wicketDlg, setWicketDlg] = useState<WicketDialog>({
     open: false,
     step: "type",
   });
   const [editableTeamName, setEditableTeamName] = useState(
     innings.battingTeam.name,
-  );
-  const [editableBowlerName, setEditableBowlerName] = useState(
-    innings.bowlingTeam.name,
   );
 
   const striker = innings.activeBatsmen.find((b) => b.isStriker);
@@ -1513,10 +1596,22 @@ function ScoringView({
   function handleRun(runs: number) {
     pushUndo(innings);
     const next = applyLegal(innings, runs, totalOvers);
+
+    // 2nd innings target check — auto stop
+    if (inningsNum === 2 && target !== undefined && next.totalRuns >= target) {
+      onInningsEnd(next);
+      return;
+    }
+
     if (next.isComplete) {
       onInningsEnd(next);
     } else {
       onUpdate(next);
+      // End of over — ask for next bowler
+      if (next.balls % 6 === 0 && next.balls > 0) {
+        setBowlerInput("");
+        setBowlerDlg(true);
+      }
     }
   }
 
@@ -1549,6 +1644,10 @@ function ScoringView({
     pushUndo(innings);
     const next = applyWicket(innings, wicketDlg.wicketType, player, totalOvers);
     setWicketDlg({ open: false, step: "type" });
+    if (inningsNum === 2 && target !== undefined && next.totalRuns >= target) {
+      onInningsEnd(next);
+      return;
+    }
     if (next.isComplete) {
       onInningsEnd(next);
     } else {
@@ -1564,6 +1663,8 @@ function ScoringView({
   }
 
   const available = getAvailableBatsmen(innings);
+  const targetReached =
+    inningsNum === 2 && target !== undefined && innings.totalRuns >= target;
 
   return (
     <Page>
@@ -1572,8 +1673,26 @@ function ScoringView({
         <h1 className="font-display font-bold text-primary text-lg tracking-widest uppercase text-center">
           CHOLISTAN CRICKET BOARD
         </h1>
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 text-xs font-body">
-          INN {inningsNum}
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+          <span className="text-white/40 text-xs font-body">
+            INN {inningsNum}
+          </span>
+          <button
+            data-ocid="scoring.share.button"
+            type="button"
+            onClick={() => {
+              const text = `🏏 CCB Live Score 🏏\nScore: ${innings.totalRuns}/${innings.wickets}\nOvers: ${formatOvers(innings.balls)}/${totalOvers}\nShared via CCB Scoring Pro`;
+              if (navigator.share) {
+                navigator.share({ title: "CCB Live Score", text });
+              } else {
+                navigator.clipboard?.writeText(text);
+              }
+            }}
+            className="text-yellow-400 hover:text-yellow-300 transition-colors"
+            title="Share Score"
+          >
+            <Share2 size={16} />
+          </button>
         </div>
       </header>
 
@@ -1647,8 +1766,16 @@ function ScoringView({
             type="text"
             data-ocid="scoring.batsman.input"
             value={striker?.player.name ?? ""}
-            readOnly
-            className="w-full bg-transparent border-none border-b border-white/20 outline-none font-body font-semibold text-base pb-1 focus:ring-0 p-0 focus:border-b focus:border-cyan-400"
+            onChange={(e) => {
+              if (!striker) return;
+              const updated = innings.activeBatsmen.map((b) =>
+                b.isStriker
+                  ? { ...b, player: { ...b.player, name: e.target.value } }
+                  : b,
+              );
+              onUpdate({ ...innings, activeBatsmen: updated });
+            }}
+            className="w-full bg-transparent border-none border-b border-cyan-400/60 outline-none font-body font-semibold text-base pb-1 focus:ring-0 p-0 focus:border-b focus:border-cyan-400"
             style={{ color: "#00FFFF" }}
             placeholder="Batsman Name"
           />
@@ -1662,19 +1789,36 @@ function ScoringView({
           <p className="text-white/60 font-body text-xs mb-1">
             Bowler / گیند باز
           </p>
-          <input
-            type="text"
+          <p
             data-ocid="scoring.bowler.input"
-            value={editableBowlerName}
-            onChange={(e) => setEditableBowlerName(e.target.value)}
-            className="w-full bg-transparent border-none border-b border-white/20 outline-none font-body font-semibold text-base pb-1 focus:ring-0 p-0"
+            className="font-body font-semibold text-base pb-1 border-b border-white/20"
             style={{ color: "#FF8C00" }}
-            placeholder="Bowler Name"
-          />
+          >
+            {bowlerName}
+          </p>
           {nonStriker && (
-            <p className="text-white/40 font-body text-[11px] mt-0.5">
-              Non-striker: {nonStriker?.player.name}
-            </p>
+            <div className="mt-1">
+              <p className="text-white/40 font-body text-[9px] uppercase tracking-wide mb-0.5">
+                Non-striker / نان اسٹرائیکر
+              </p>
+              <input
+                type="text"
+                data-ocid="scoring.nonstriker.input"
+                value={nonStriker?.player.name ?? ""}
+                onChange={(e) => {
+                  if (!nonStriker) return;
+                  const updated = innings.activeBatsmen.map((b) =>
+                    !b.isStriker
+                      ? { ...b, player: { ...b.player, name: e.target.value } }
+                      : b,
+                  );
+                  onUpdate({ ...innings, activeBatsmen: updated });
+                }}
+                className="w-full bg-transparent border-none border-b border-lime-400/60 outline-none font-body text-sm pb-0.5 focus:ring-0 p-0 focus:border-b focus:border-lime-400"
+                style={{ color: "#ADFF2F" }}
+                placeholder="Non-striker Name"
+              />
+            </div>
           )}
         </div>
       </div>
@@ -1683,6 +1827,19 @@ function ScoringView({
 
       {/* Scoring Buttons — 3x3 grid + LEGAL full-width */}
       <div className="flex-1 bg-black p-3 sm:p-4">
+        {targetReached && (
+          <div
+            data-ocid="scoring.target_reached.success_state"
+            className="mb-3 max-w-sm mx-auto rounded-xl bg-green-600 border-2 border-green-400 px-4 py-3 text-center"
+          >
+            <p className="text-white font-display font-bold text-lg tracking-wider">
+              🏆 TARGET REACHED!
+            </p>
+            <p className="text-white/80 font-body text-sm">
+              Match Won! — تارگٹ حاصل کر لیا
+            </p>
+          </div>
+        )}
         <div className="grid grid-cols-3 gap-2.5 sm:gap-3 max-w-sm mx-auto">
           {/* Row 1: 1, 2, 3 — light green */}
           <ScoreBtn
@@ -1691,6 +1848,7 @@ function ScoringView({
             colorClass="bg-btn-green"
             onClick={() => handleRun(1)}
             ocid="scoring.run_1.button"
+            disabled={targetReached}
           />
           <ScoreBtn
             label="2"
@@ -1698,6 +1856,7 @@ function ScoringView({
             colorClass="bg-btn-green"
             onClick={() => handleRun(2)}
             ocid="scoring.run_2.button"
+            disabled={targetReached}
           />
           <ScoreBtn
             label="3"
@@ -1705,6 +1864,7 @@ function ScoringView({
             colorClass="bg-btn-green"
             onClick={() => handleRun(3)}
             ocid="scoring.run_3.button"
+            disabled={targetReached}
           />
           {/* Row 2: 4, 6, WD */}
           <ScoreBtn
@@ -1713,6 +1873,7 @@ function ScoringView({
             colorClass="bg-btn-blue"
             onClick={() => handleRun(4)}
             ocid="scoring.run_4.button"
+            disabled={targetReached}
           />
           <ScoreBtn
             label="6"
@@ -1720,6 +1881,7 @@ function ScoringView({
             colorClass="bg-btn-orange"
             onClick={() => handleRun(6)}
             ocid="scoring.run_6.button"
+            disabled={targetReached}
           />
           <ScoreBtn
             label="WD"
@@ -1727,6 +1889,7 @@ function ScoringView({
             colorClass="bg-btn-pink"
             onClick={() => handleExtra(1)}
             ocid="scoring.wide.button"
+            disabled={targetReached}
           />
           {/* Row 3: NB, OUT, 0 */}
           <ScoreBtn
@@ -1735,6 +1898,7 @@ function ScoringView({
             colorClass="bg-btn-purple"
             onClick={() => handleExtra(1)}
             ocid="scoring.noball.button"
+            disabled={targetReached}
           />
           <ScoreBtn
             label="OUT"
@@ -1742,6 +1906,7 @@ function ScoringView({
             colorClass="bg-btn-red"
             onClick={handleOutClick}
             ocid="scoring.out.button"
+            disabled={targetReached}
           />
           <ScoreBtn
             label="0"
@@ -1749,6 +1914,7 @@ function ScoringView({
             colorClass="bg-btn-gray"
             onClick={() => handleRun(0)}
             ocid="scoring.run_0.button"
+            disabled={targetReached}
           />
           {/* LEGAL — full width bottom */}
           <ScoreBtn
@@ -1758,6 +1924,7 @@ function ScoringView({
             onClick={() => handleRun(0)}
             ocid="scoring.legal.button"
             wide
+            disabled={targetReached}
           />
         </div>
 
@@ -1767,7 +1934,7 @@ function ScoringView({
             type="button"
             data-ocid="scoring.undo.button"
             onClick={handleUndo}
-            disabled={undoStack.length === 0}
+            disabled={undoStack.length === 0 || targetReached}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-btn-amber/60 text-btn-amber font-body font-semibold text-sm hover:bg-btn-amber/10 transition-colors cursor-pointer bg-transparent disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <RotateCcw size={15} />
@@ -1782,6 +1949,50 @@ function ScoringView({
           Developed by Shehzad Sultan | 03418890677
         </p>
       </footer>
+
+      {/* Bowler Selection Dialog — non-dismissible */}
+      <Dialog open={bowlerDlg} onOpenChange={() => {}}>
+        <DialogContent
+          className="bg-black border-2 border-yellow-400 text-white max-w-sm mx-4"
+          onInteractOutside={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="text-yellow-400 font-bold text-xl">
+              Over Complete!
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-white text-sm mb-2">Enter Next Bowler Name:</p>
+          <input
+            className="w-full bg-gray-900 text-white border border-yellow-400/50 rounded px-3 py-2 text-base outline-none"
+            value={bowlerInput}
+            onChange={(e) => setBowlerInput(e.target.value)}
+            placeholder="Bowler name..."
+            data-ocid="scoring.bowler_name.input"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && bowlerInput.trim()) {
+                setBowlerName(bowlerInput.trim());
+                setBowlerDlg(false);
+              }
+            }}
+          />
+          <DialogFooter>
+            <button
+              type="button"
+              data-ocid="scoring.bowler_name.confirm_button"
+              onClick={() => {
+                if (bowlerInput.trim()) {
+                  setBowlerName(bowlerInput.trim());
+                  setBowlerDlg(false);
+                }
+              }}
+              disabled={!bowlerInput.trim()}
+              className="w-full bg-yellow-400 text-black font-bold px-6 py-3 rounded-xl hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border-0"
+            >
+              شروع کریں / Start Over
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Wicket Dialog */}
       <Dialog
@@ -1985,6 +2196,44 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
           </p>
           <p className="text-white/40 font-body text-xs mt-1">{match.date}</p>
         </motion.div>
+
+        {/* Man of the Match */}
+        {(() => {
+          const allBatsmen: { name: string; runs: number }[] = [];
+          for (const inn of [innings1, innings2].filter(
+            Boolean,
+          ) as InningsState[]) {
+            for (const b of [...inn.activeBatsmen, ...inn.outBatsmen]) {
+              const existing = allBatsmen.find((x) => x.name === b.player.name);
+              if (existing) existing.runs += b.runs;
+              else allBatsmen.push({ name: b.player.name, runs: b.runs });
+            }
+          }
+          const motm = allBatsmen.sort((a, b) => b.runs - a.runs)[0];
+          if (!motm || motm.runs === 0) return null;
+          return (
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3, type: "spring" }}
+              className="mb-6 rounded-2xl border-2 border-yellow-400 bg-gradient-to-br from-yellow-950/60 to-black/80 px-5 py-4 text-center shadow-[0_0_24px_rgba(250,204,21,0.35)]"
+              data-ocid="result.motm.card"
+            >
+              <p className="text-yellow-400/70 text-xs uppercase tracking-[0.2em] font-semibold mb-1">
+                🏆 Man of the Match
+              </p>
+              <p
+                className="text-yellow-300 font-display font-bold text-2xl"
+                style={{ textShadow: "0 0 16px rgba(250,204,21,0.5)" }}
+              >
+                {motm.name}
+              </p>
+              <p className="text-yellow-400/80 text-sm mt-1 font-body">
+                {motm.runs} Runs
+              </p>
+            </motion.div>
+          );
+        })()}
 
         {/* Scorecard */}
         <div id="scorecard-print" className="space-y-4">
@@ -2232,6 +2481,29 @@ function TournamentView({
     awayBalls: "",
     totalOvers: "6",
   });
+  const [addMatchDialog, setAddMatchDialog] = useState<{
+    open: boolean;
+    poolId: string;
+    teamAId: string;
+    teamBId: string;
+    date: string;
+    time: string;
+    status: "scheduled" | "completed" | "tied";
+    pwdInput: string;
+    pwdError: boolean;
+    pwdVerified: boolean;
+  }>({
+    open: false,
+    poolId: "",
+    teamAId: "",
+    teamBId: "",
+    date: "",
+    time: "",
+    status: "scheduled",
+    pwdInput: "",
+    pwdError: false,
+    pwdVerified: false,
+  });
 
   function updateTournament(patch: Partial<Tournament>) {
     const updated = { ...tournament, ...patch };
@@ -2299,14 +2571,49 @@ function TournamentView({
   function addMatch(poolId: string) {
     const pool = tournament.pools.find((p) => p.id === poolId);
     if (!pool || pool.teamIds.length < 2) return;
+    setAddMatchDialog({
+      open: true,
+      poolId,
+      teamAId: pool.teamIds[0],
+      teamBId: pool.teamIds[1],
+      date: "",
+      time: "",
+      status: "scheduled",
+      pwdInput: "",
+      pwdError: false,
+      pwdVerified: false,
+    });
+  }
+
+  function saveAddMatch() {
+    if (!addMatchDialog.pwdVerified) {
+      if (addMatchDialog.pwdInput === "Shahzad@99") {
+        setAddMatchDialog((prev) => ({
+          ...prev,
+          pwdVerified: true,
+          pwdError: false,
+        }));
+      } else {
+        setAddMatchDialog((prev) => ({ ...prev, pwdError: true }));
+      }
+      return;
+    }
     const newMatch: PoolMatch = {
       id: Date.now().toString(),
-      homeTeamId: pool.teamIds[0],
-      awayTeamId: pool.teamIds[1],
+      homeTeamId: addMatchDialog.teamAId,
+      awayTeamId: addMatchDialog.teamBId,
       totalOvers: 6,
-      status: "scheduled",
+      status: addMatchDialog.status,
+      date: addMatchDialog.date,
+      time: addMatchDialog.time,
     };
     updateTournament({ matches: [...tournament.matches, newMatch] });
+    setAddMatchDialog((prev) => ({ ...prev, open: false }));
+  }
+
+  function confirmDeleteMatch(matchId: string) {
+    const pwd = window.prompt("Admin Password Required:");
+    if (pwd === "Shahzad@99") deleteMatch(matchId);
   }
 
   function deleteMatch(matchId: string) {
@@ -2587,18 +2894,6 @@ function TournamentView({
                     {poolMatches.map((m, idx) => {
                       const homeTeam = teams.find((t) => t.id === m.homeTeamId);
                       const awayTeam = teams.find((t) => t.id === m.awayTeamId);
-                      const statusColor =
-                        m.status === "completed"
-                          ? "text-green-400"
-                          : m.status === "tied"
-                            ? "text-yellow-400"
-                            : "text-white/40";
-                      const statusLabel =
-                        m.status === "completed"
-                          ? "مکمل"
-                          : m.status === "tied"
-                            ? "ٹائی"
-                            : "شیڈول";
                       return (
                         <div
                           key={m.id}
@@ -2607,16 +2902,38 @@ function TournamentView({
                         >
                           <div className="flex items-center gap-2">
                             <span
-                              className={`text-xs font-body font-semibold ${statusColor}`}
+                              className={`text-xs font-body font-semibold px-2 py-0.5 rounded-full border ${
+                                m.status === "completed"
+                                  ? "border-green-400/40 bg-green-400/10 text-green-400"
+                                  : m.status === "tied"
+                                    ? "border-yellow-400/40 bg-yellow-400/10 text-yellow-400"
+                                    : "border-white/20 bg-white/5 text-white/50"
+                              }`}
                             >
-                              {statusLabel}
+                              {m.status === "completed"
+                                ? "✓ Completed"
+                                : m.status === "tied"
+                                  ? "= Tied"
+                                  : "⏰ Upcoming"}
                             </span>
                             <div className="flex-1" />
+                            {(m.date || m.time) && (
+                              <span className="text-primary/70 text-xs font-body font-semibold">
+                                {m.date
+                                  ? new Date(m.date).toLocaleDateString(
+                                      "en-GB",
+                                      { day: "2-digit", month: "short" },
+                                    )
+                                  : ""}
+                                {m.date && m.time ? " · " : ""}
+                                {m.time ?? ""}
+                              </span>
+                            )}
                             <button
                               type="button"
                               data-ocid={`tournament.match.delete_button.${idx + 1}`}
-                              onClick={() => deleteMatch(m.id)}
-                              className="text-red-400/60 hover:text-red-400 cursor-pointer"
+                              onClick={() => confirmDeleteMatch(m.id)}
+                              className="text-red-400/60 hover:text-red-400 cursor-pointer ml-1"
                             >
                               <Trash2 size={13} />
                             </button>
@@ -2812,6 +3129,238 @@ function TournamentView({
         )}
       </main>
 
+      {/* Add Match Dialog */}
+      <Dialog
+        open={addMatchDialog.open}
+        onOpenChange={(open) =>
+          setAddMatchDialog((prev) => ({ ...prev, open }))
+        }
+      >
+        <DialogContent className="bg-black border border-primary/30 text-white max-w-sm mx-auto">
+          <DialogHeader>
+            <DialogTitle className="text-primary font-display tracking-wider">
+              ADD POOL MATCH
+            </DialogTitle>
+          </DialogHeader>
+          {!addMatchDialog.pwdVerified ? (
+            <div className="space-y-4 py-2">
+              <p className="text-white/60 text-xs font-body">
+                Admin password required to add a match.
+              </p>
+              <input
+                type="password"
+                data-ocid="tournament.add_match_dialog.password.input"
+                value={addMatchDialog.pwdInput}
+                onChange={(e) =>
+                  setAddMatchDialog((prev) => ({
+                    ...prev,
+                    pwdInput: e.target.value,
+                  }))
+                }
+                onKeyDown={(e) => e.key === "Enter" && saveAddMatch()}
+                placeholder="Enter Admin Password"
+                className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-white font-body focus:outline-none focus:border-primary"
+              />
+              {addMatchDialog.pwdError && (
+                <p
+                  className="text-red-400 text-xs font-body"
+                  data-ocid="tournament.add_match_dialog.error_state"
+                >
+                  Wrong password
+                </p>
+              )}
+              <button
+                type="button"
+                data-ocid="tournament.add_match_dialog.confirm_button"
+                onClick={saveAddMatch}
+                className="w-full h-10 rounded-xl bg-primary text-black font-display font-bold text-sm tracking-wider cursor-pointer hover:opacity-90 transition-opacity"
+              >
+                VERIFY
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3 py-2">
+              <div>
+                <label
+                  htmlFor="amd-pool"
+                  className="text-white/60 text-xs font-body block mb-1"
+                >
+                  Pool
+                </label>
+                <select
+                  id="amd-pool"
+                  data-ocid="tournament.add_match_dialog.pool.select"
+                  value={addMatchDialog.poolId}
+                  onChange={(e) => {
+                    const pool = tournament.pools.find(
+                      (p) => p.id === e.target.value,
+                    );
+                    setAddMatchDialog((prev) => ({
+                      ...prev,
+                      poolId: e.target.value,
+                      teamAId: pool?.teamIds[0] ?? "",
+                      teamBId: pool?.teamIds[1] ?? "",
+                    }));
+                  }}
+                  className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white font-body text-sm focus:outline-none focus:border-primary"
+                >
+                  {tournament.pools.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      Pool {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {(() => {
+                const pool = tournament.pools.find(
+                  (p) => p.id === addMatchDialog.poolId,
+                );
+                const poolTeams = (pool?.teamIds ?? [])
+                  .map((tid) => teams.find((t) => t.id === tid))
+                  .filter(Boolean);
+                return (
+                  <>
+                    <div>
+                      <label
+                        htmlFor="amd-team-a"
+                        className="text-white/60 text-xs font-body block mb-1"
+                      >
+                        Team A
+                      </label>
+                      <select
+                        id="amd-team-a"
+                        data-ocid="tournament.add_match_dialog.team_a.select"
+                        value={addMatchDialog.teamAId}
+                        onChange={(e) =>
+                          setAddMatchDialog((prev) => ({
+                            ...prev,
+                            teamAId: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white font-body text-sm focus:outline-none focus:border-primary"
+                      >
+                        {poolTeams.map((t) => (
+                          <option key={t!.id} value={t!.id}>
+                            {t!.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="amd-team-b"
+                        className="text-white/60 text-xs font-body block mb-1"
+                      >
+                        Team B
+                      </label>
+                      <select
+                        id="amd-team-b"
+                        data-ocid="tournament.add_match_dialog.team_b.select"
+                        value={addMatchDialog.teamBId}
+                        onChange={(e) =>
+                          setAddMatchDialog((prev) => ({
+                            ...prev,
+                            teamBId: e.target.value,
+                          }))
+                        }
+                        className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white font-body text-sm focus:outline-none focus:border-primary"
+                      >
+                        {poolTeams
+                          .filter((t) => t!.id !== addMatchDialog.teamAId)
+                          .map((t) => (
+                            <option key={t!.id} value={t!.id}>
+                              {t!.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </>
+                );
+              })()}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="amd-date"
+                    className="text-white/60 text-xs font-body block mb-1"
+                  >
+                    Date
+                  </label>
+                  <input
+                    id="amd-date"
+                    type="date"
+                    data-ocid="tournament.add_match_dialog.date.input"
+                    value={addMatchDialog.date}
+                    onChange={(e) =>
+                      setAddMatchDialog((prev) => ({
+                        ...prev,
+                        date: e.target.value,
+                      }))
+                    }
+                    className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white font-body text-sm focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="amd-time"
+                    className="text-white/60 text-xs font-body block mb-1"
+                  >
+                    Time
+                  </label>
+                  <input
+                    id="amd-time"
+                    type="time"
+                    data-ocid="tournament.add_match_dialog.time.input"
+                    value={addMatchDialog.time}
+                    onChange={(e) =>
+                      setAddMatchDialog((prev) => ({
+                        ...prev,
+                        time: e.target.value,
+                      }))
+                    }
+                    className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white font-body text-sm focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+              <div>
+                <label
+                  htmlFor="amd-status"
+                  className="text-white/60 text-xs font-body block mb-1"
+                >
+                  Status
+                </label>
+                <select
+                  id="amd-status"
+                  data-ocid="tournament.add_match_dialog.status.select"
+                  value={addMatchDialog.status}
+                  onChange={(e) =>
+                    setAddMatchDialog((prev) => ({
+                      ...prev,
+                      status: e.target.value as
+                        | "scheduled"
+                        | "completed"
+                        | "tied",
+                    }))
+                  }
+                  className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white font-body text-sm focus:outline-none focus:border-primary"
+                >
+                  <option value="scheduled">Upcoming</option>
+                  <option value="completed">Completed</option>
+                  <option value="tied">Tied</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                data-ocid="tournament.add_match_dialog.submit_button"
+                onClick={saveAddMatch}
+                className="w-full h-10 rounded-xl bg-primary text-black font-display font-bold text-sm tracking-wider cursor-pointer hover:opacity-90 transition-opacity"
+              >
+                ADD MATCH
+              </button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Score Entry Dialog */}
       <Dialog
         open={scoreDialog.open}
@@ -2967,7 +3516,7 @@ function TournamentView({
               }
               className="flex-1 h-10 rounded-lg border border-white/20 text-white/60 font-body text-sm cursor-pointer hover:bg-white/5 transition-colors"
             >
-              منسوخ
+              Cancel
             </button>
             <button
               type="button"
@@ -2990,7 +3539,46 @@ function TournamentView({
 // APP ROOT
 // ──────────────────────────────────────────────────────────────
 
+// ──────────────────────────────────────────────────────────────
+// SPLASH SCREEN
+// ──────────────────────────────────────────────────────────────
+
+function SplashScreen({ onDone }: { onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3000);
+    return () => clearTimeout(t);
+  }, [onDone]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 bg-black flex flex-col items-center justify-center z-50 gap-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.4 }}
+    >
+      <img
+        src="/assets/uploads/1773769089361-1.png"
+        alt="CCB SCORING PRO"
+        className="w-28 h-28 object-contain select-none"
+        style={{ filter: "drop-shadow(0 0 20px #FACC15)" }}
+      />
+      <h1 className="font-display font-bold text-white text-3xl tracking-[0.25em] uppercase text-center">
+        CCB SCORING PRO
+      </h1>
+      <p className="text-white/70 font-body text-base tracking-widest text-center">
+        Cholistan Cricket Board
+      </p>
+      <div className="mt-4 w-10 h-10 rounded-full border-4 border-yellow-400/30 border-t-yellow-400 animate-spin" />
+      <p className="absolute bottom-6 text-white/40 font-body text-xs tracking-wider">
+        Powered by Shehzad Graphics
+      </p>
+    </motion.div>
+  );
+}
+
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [view, setView] = useState<View>("home");
   const [teams, setTeams] = useState<Team[]>(TEAMS);
   const [showEditTeams, setShowEditTeams] = useState(false);
@@ -3058,7 +3646,7 @@ export default function App() {
       innings2: finalInnings,
       resultText: result,
     };
-    const updated = [record, ...pastMatches];
+    const updated = [record, ...pastMatches].slice(0, 10);
     setPastMatches(updated);
     try {
       localStorage.setItem("ccb_past_matches", JSON.stringify(updated));
@@ -3072,6 +3660,14 @@ export default function App() {
 
   const target =
     currentInningsNum === 2 && innings1 ? innings1.totalRuns + 1 : undefined;
+
+  if (showSplash) {
+    return (
+      <AnimatePresence>
+        <SplashScreen onDone={() => setShowSplash(false)} />
+      </AnimatePresence>
+    );
+  }
 
   return (
     <div className="bg-background min-h-screen">
