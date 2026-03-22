@@ -43,6 +43,9 @@ import AnnouncementSection from "./components/AnnouncementSection";
 interface Player {
   id: string;
   name: string;
+  role?: "batsman" | "bowler" | "allrounder";
+  isCaptain?: boolean;
+  isViceCaptain?: boolean;
 }
 
 interface Team {
@@ -64,7 +67,10 @@ type View =
   | "fixed-schedule"
   | "announcements"
   | "live-match"
-  | "post-vote";
+  | "post-vote"
+  | "matches-tab"
+  | "community-tab"
+  | "teams-tab";
 
 interface BatsmanState {
   player: Player;
@@ -170,420 +176,46 @@ interface WicketDialog {
 }
 
 // ──────────────────────────────────────────────────────────────
-// SEED DATA — 24 REGISTERED TEAMS
+// DEFAULT TEAMS (20 fixed)
 // ──────────────────────────────────────────────────────────────
 
-const TEAMS: Team[] = [
-  {
-    id: "t1",
-    name: "Desert Hawks CC",
-    players: [
-      { id: "p1", name: "Ahmed Ali" },
-      { id: "p2", name: "Bilal Khan" },
-      { id: "p3", name: "Usman Tariq" },
-      { id: "p4", name: "Salman Raza" },
-      { id: "p5", name: "Faisal Iqbal" },
-      { id: "p6", name: "Tariq Mehmood" },
-      { id: "p7", name: "Asif Nawaz" },
-      { id: "p8", name: "Rizwan Malik" },
-      { id: "p9", name: "Danish Qureshi" },
-      { id: "p10", name: "Hamza Butt" },
-      { id: "p11", name: "Zubair Anwar" },
-    ],
-  },
-  {
-    id: "t2",
-    name: "Cholistan Lions",
-    players: [
-      { id: "p12", name: "Kashif Javed" },
-      { id: "p13", name: "Naveed Akhtar" },
-      { id: "p14", name: "Imran Siddiqui" },
-      { id: "p15", name: "Shoaib Rana" },
-      { id: "p16", name: "Wasim Baig" },
-      { id: "p17", name: "Shahid Zaman" },
-      { id: "p18", name: "Adeel Chaudhry" },
-      { id: "p19", name: "Majid Hussain" },
-      { id: "p20", name: "Aamir Bashir" },
-      { id: "p21", name: "Naeem Sheikh" },
-      { id: "p22", name: "Khalid Mahmood" },
-    ],
-  },
-  {
-    id: "t3",
-    name: "Yazman Warriors",
-    players: [
-      { id: "p23", name: "Irfan Saeed" },
-      { id: "p24", name: "Ghulam Abbas" },
-      { id: "p25", name: "Pervaiz Alam" },
-      { id: "p26", name: "Javaid Iqbal" },
-      { id: "p27", name: "Mukhtar Ahmed" },
-      { id: "p28", name: "Shaukat Ali" },
-      { id: "p29", name: "Liaquat Khan" },
-      { id: "p30", name: "Azhar Mehmood" },
-      { id: "p31", name: "Sajjad Rao" },
-      { id: "p32", name: "Tanveer Gill" },
-      { id: "p33", name: "Arif Butt" },
-    ],
-  },
-  {
-    id: "t4",
-    name: "Bahawalpur Eagles",
-    players: [
-      { id: "p34", name: "Umer Farooq" },
-      { id: "p35", name: "Zafar Iqbal" },
-      { id: "p36", name: "Kabir Hussain" },
-      { id: "p37", name: "Ramzan Ali" },
-      { id: "p38", name: "Shakeel Ahmed" },
-      { id: "p39", name: "Anwar Pasha" },
-      { id: "p40", name: "Mujahid Raza" },
-      { id: "p41", name: "Farhan Noor" },
-      { id: "p42", name: "Waleed Shahid" },
-      { id: "p43", name: "Haris Baig" },
-      { id: "p44", name: "Saeed Gul" },
-    ],
-  },
-  {
-    id: "t5",
-    name: "Fort Abbas Tigers",
-    players: [
-      { id: "p45", name: "Aleem Khan" },
-      { id: "p46", name: "Nasir Mehmood" },
-      { id: "p47", name: "Iqbal Shah" },
-      { id: "p48", name: "Zaheer Awan" },
-      { id: "p49", name: "Munir Siddiq" },
-      { id: "p50", name: "Qasim Rauf" },
-      { id: "p51", name: "Bashir Ahmed" },
-      { id: "p52", name: "Amjad Ali" },
-      { id: "p53", name: "Rafiq Ullah" },
-      { id: "p54", name: "Saqib Noor" },
-      { id: "p55", name: "Waqas Tariq" },
-    ],
-  },
-  {
-    id: "t6",
-    name: "Derawar Falcons",
-    players: [
-      { id: "p56", name: "Tahir Abbas" },
-      { id: "p57", name: "Younus Khan" },
-      { id: "p58", name: "Aftab Nawaz" },
-      { id: "p59", name: "Javed Miandad Jr" },
-      { id: "p60", name: "Sohail Tanvir Jr" },
-      { id: "p61", name: "Mohsin Kamal" },
-      { id: "p62", name: "Asad Shafiq Jr" },
-      { id: "p63", name: "Sarfraz Ali" },
-      { id: "p64", name: "Babar Shah" },
-      { id: "p65", name: "Shaheen Malik" },
-      { id: "p66", name: "Waqar Younis Jr" },
-    ],
-  },
-  {
-    id: "t7",
-    name: "Khairpur Stallions",
-    players: [
-      { id: "p67", name: "Fawad Khan" },
-      { id: "p68", name: "Abubakar Siddiq" },
-      { id: "p69", name: "Ismail Qureshi" },
-      { id: "p70", name: "Khurram Manzoor Jr" },
-      { id: "p71", name: "Taimur Shah" },
-      { id: "p72", name: "Zeeshan Malik" },
-      { id: "p73", name: "Moeen Abbas" },
-      { id: "p74", name: "Rayyan Ali" },
-      { id: "p75", name: "Huzaifa Khan" },
-      { id: "p76", name: "Sanan Zubair" },
-      { id: "p77", name: "Muqeet Rana" },
-    ],
-  },
-  {
-    id: "t8",
-    name: "Uch Sharif Royals",
-    players: [
-      { id: "p78", name: "Abdullah Niaz" },
-      { id: "p79", name: "Hassan Butt" },
-      { id: "p80", name: "Hussain Nawaz" },
-      { id: "p81", name: "Ibrahim Malik" },
-      { id: "p82", name: "Kamran Sajid" },
-      { id: "p83", name: "Luqman Hakim" },
-      { id: "p84", name: "Mehran Iqbal" },
-      { id: "p85", name: "Noman Ali" },
-      { id: "p86", name: "Omar Shahzad" },
-      { id: "p87", name: "Qadeer Ahmed" },
-      { id: "p88", name: "Rashid Latif Jr" },
-    ],
-  },
-  {
-    id: "t9",
-    name: "Haroonabad Bulls",
-    players: [
-      { id: "p89", name: "Saqlain Mushtaq Jr" },
-      { id: "p90", name: "Tauseef Ahmed" },
-      { id: "p91", name: "Umar Gul Jr" },
-      { id: "p92", name: "Yasir Shah Jr" },
-      { id: "p93", name: "Zulfiqar Babar Jr" },
-      { id: "p94", name: "Aizaz Cheema" },
-      { id: "p95", name: "Bilawal Bhatti" },
-      { id: "p96", name: "Chetan Saifullah" },
-      { id: "p97", name: "Dilawar Khan" },
-      { id: "p98", name: "Ehsan Adil" },
-      { id: "p99", name: "Fahad Akhtar" },
-    ],
-  },
-  {
-    id: "t10",
-    name: "Ahmadpur Knights",
-    players: [
-      { id: "p100", name: "Ghulam Mudassar" },
-      { id: "p101", name: "Hafiz Habib" },
-      { id: "p102", name: "Iftikhar Ahmed Jr" },
-      { id: "p103", name: "Junaid Khan Jr" },
-      { id: "p104", name: "Kamran Akmal Jr" },
-      { id: "p105", name: "Lal Khan" },
-      { id: "p106", name: "Maqsood Ahmed" },
-      { id: "p107", name: "Nisar Ali" },
-      { id: "p108", name: "Omer Khan" },
-      { id: "p109", name: "Parvez Rasool" },
-      { id: "p110", name: "Qamar Zaman" },
-    ],
-  },
-  {
-    id: "t11",
-    name: "Minchinabad Cobras",
-    players: [
-      { id: "p111", name: "Riaz Ahmed" },
-      { id: "p112", name: "Sajid Khan" },
-      { id: "p113", name: "Tabish Khan" },
-      { id: "p114", name: "Usama Mir" },
-      { id: "p115", name: "Varun Ali" },
-      { id: "p116", name: "Wahab Riaz Jr" },
-      { id: "p117", name: "Xulfiqar Mirza" },
-      { id: "p118", name: "Yousuf Baig" },
-      { id: "p119", name: "Zahid Mahmood" },
-      { id: "p120", name: "Arshad Iqbal" },
-      { id: "p121", name: "Basit Ali Jr" },
-    ],
-  },
-  {
-    id: "t12",
-    name: "Chishtian Gladiators",
-    players: [
-      { id: "p122", name: "Chand Nawab" },
-      { id: "p123", name: "Danish Aziz" },
-      { id: "p124", name: "Ejaz Ahmed Jr" },
-      { id: "p125", name: "Fida Hussain" },
-      { id: "p126", name: "Ghaffar Khan" },
-      { id: "p127", name: "Hasnain Ali" },
-      { id: "p128", name: "Imtiaz Ahmed" },
-      { id: "p129", name: "Jamshed Khan" },
-      { id: "p130", name: "Khalilullah" },
-      { id: "p131", name: "Latif Ahmed" },
-      { id: "p132", name: "Mansoor Akhtar" },
-    ],
-  },
-  {
-    id: "t13",
-    name: "Sadiqabad Spartans",
-    players: [
-      { id: "p133", name: "Naved Latif" },
-      { id: "p134", name: "Obaid Kakar" },
-      { id: "p135", name: "Pasha Nawaz" },
-      { id: "p136", name: "Qurban Ali" },
-      { id: "p137", name: "Rahim Gul" },
-      { id: "p138", name: "Sardar Khan" },
-      { id: "p139", name: "Tahir Mughal" },
-      { id: "p140", name: "Umar Akmal Jr" },
-      { id: "p141", name: "Vaqar Ali" },
-      { id: "p142", name: "Waqas Ali" },
-      { id: "p143", name: "Xerxes Bhatti" },
-    ],
-  },
-  {
-    id: "t14",
-    name: "Rahim Yar Khan XI",
-    players: [
-      { id: "p144", name: "Yaqoob Butt" },
-      { id: "p145", name: "Zaeem Hussain" },
-      { id: "p146", name: "Aqeel Ahmed" },
-      { id: "p147", name: "Badshah Khan" },
-      { id: "p148", name: "Chavez Ali" },
-      { id: "p149", name: "Dilnawaz Baig" },
-      { id: "p150", name: "Ejaz Mir" },
-      { id: "p151", name: "Fiaz Ahmad" },
-      { id: "p152", name: "Gulab Khan" },
-      { id: "p153", name: "Hameed Gul" },
-      { id: "p154", name: "Ilyas Butt" },
-    ],
-  },
-  {
-    id: "t15",
-    name: "Liaquatpur Panthers",
-    players: [
-      { id: "p155", name: "Javed Akhtar" },
-      { id: "p156", name: "Kamber Ali" },
-      { id: "p157", name: "Lal Hussain" },
-      { id: "p158", name: "Munib Rehman" },
-      { id: "p159", name: "Nayyer Abbas" },
-      { id: "p160", name: "Osama Tariq" },
-      { id: "p161", name: "Perveen Akhtar" },
-      { id: "p162", name: "Qadir Iqbal" },
-      { id: "p163", name: "Rizwan Ahmed" },
-      { id: "p164", name: "Saqlain Ahmed" },
-      { id: "p165", name: "Taimur Mirza" },
-    ],
-  },
-  {
-    id: "t16",
-    name: "Hasilpur Thunder",
-    players: [
-      { id: "p166", name: "Usman Ghani" },
-      { id: "p167", name: "Vehbi Ali" },
-      { id: "p168", name: "Waheed Khan" },
-      { id: "p169", name: "Xander Raza" },
-      { id: "p170", name: "Yawer Abbasi" },
-      { id: "p171", name: "Zakir Khan" },
-      { id: "p172", name: "Ameer Hamza" },
-      { id: "p173", name: "Baber Azam Jr" },
-      { id: "p174", name: "Corbin Pasha" },
-      { id: "p175", name: "Danyal Hussain" },
-      { id: "p176", name: "Ejaz Shah" },
-    ],
-  },
-  {
-    id: "t17",
-    name: "Khanewal Strikers",
-    players: [
-      { id: "p177", name: "Adnan Raza" },
-      { id: "p178", name: "Bilal Asif Jr" },
-      { id: "p179", name: "Fahim Ashraf Jr" },
-      { id: "p180", name: "Ghulam Ali" },
-      { id: "p181", name: "Hammad Ahmed" },
-      { id: "p182", name: "Imran Butt" },
-      { id: "p183", name: "Jibran Khan" },
-      { id: "p184", name: "Kamran Ghulam Jr" },
-      { id: "p185", name: "Luqman Ahmed" },
-      { id: "p186", name: "Mubashar Ahmed" },
-      { id: "p187", name: "Noman Butt" },
-    ],
-  },
-  {
-    id: "t18",
-    name: "Bahawal Nagar Stars",
-    players: [
-      { id: "p188", name: "Omer Butt" },
-      { id: "p189", name: "Pervez Khan" },
-      { id: "p190", name: "Qammar Hussain" },
-      { id: "p191", name: "Rashid Khan" },
-      { id: "p192", name: "Salim Raza" },
-      { id: "p193", name: "Tahir Hussain" },
-      { id: "p194", name: "Usman Butt" },
-      { id: "p195", name: "Waqas Khan" },
-      { id: "p196", name: "Yasir Khan" },
-      { id: "p197", name: "Zafar Ali" },
-      { id: "p198", name: "Asad Ali" },
-    ],
-  },
-  {
-    id: "t19",
-    name: "Pakpattan Blazers",
-    players: [
-      { id: "p199", name: "Babar Khan" },
-      { id: "p200", name: "Chaudhry Zafar" },
-      { id: "p201", name: "Daniyal Raza" },
-      { id: "p202", name: "Fahad Mirza" },
-      { id: "p203", name: "Ghulam Rasool" },
-      { id: "p204", name: "Haroon Khan" },
-      { id: "p205", name: "Ikram Ullah" },
-      { id: "p206", name: "Jawad Ahmed" },
-      { id: "p207", name: "Khawaja Usman" },
-      { id: "p208", name: "Liaquat Ali" },
-      { id: "p209", name: "Murtaza Baig" },
-    ],
-  },
-  {
-    id: "t20",
-    name: "Vehari Volcanoes",
-    players: [
-      { id: "p210", name: "Naseem Shah Jr" },
-      { id: "p211", name: "Omer Farhan" },
-      { id: "p212", name: "Pasha Ali" },
-      { id: "p213", name: "Qaiser Abbas" },
-      { id: "p214", name: "Rana Asif" },
-      { id: "p215", name: "Shahbaz Ahmed" },
-      { id: "p216", name: "Tariq Awan" },
-      { id: "p217", name: "Usman Qadir Jr" },
-      { id: "p218", name: "Wahid Ali" },
-      { id: "p219", name: "Yasin Butt" },
-      { id: "p220", name: "Zohaib Khan" },
-    ],
-  },
-  {
-    id: "t21",
-    name: "Multan Mavericks",
-    players: [
-      { id: "p221", name: "Ahtesham Ali" },
-      { id: "p222", name: "Bashar Hussain" },
-      { id: "p223", name: "Dawood Khan" },
-      { id: "p224", name: "Ehsan Mirza" },
-      { id: "p225", name: "Faizan Ahmed" },
-      { id: "p226", name: "Habib Ullah" },
-      { id: "p227", name: "Irfan Khan" },
-      { id: "p228", name: "Jahanzaib Ali" },
-      { id: "p229", name: "Khawar Mehmood" },
-      { id: "p230", name: "Laeeq Ahmed" },
-      { id: "p231", name: "Moeez Khan" },
-    ],
-  },
-  {
-    id: "t22",
-    name: "Taunsa Chargers",
-    players: [
-      { id: "p232", name: "Nafees Khan" },
-      { id: "p233", name: "Owais Shah Jr" },
-      { id: "p234", name: "Parvez Aziz" },
-      { id: "p235", name: "Qadeer Ullah" },
-      { id: "p236", name: "Rehman Gul" },
-      { id: "p237", name: "Saadat Ali" },
-      { id: "p238", name: "Tanvir Ahmed" },
-      { id: "p239", name: "Usaid Khan" },
-      { id: "p240", name: "Waqas Hussain" },
-      { id: "p241", name: "Yaqub Khan" },
-      { id: "p242", name: "Zain Butt" },
-    ],
-  },
-  {
-    id: "t23",
-    name: "Rojhan Raiders",
-    players: [
-      { id: "p243", name: "Aamir Iqbal" },
-      { id: "p244", name: "Baqir Hussain" },
-      { id: "p245", name: "Chaand Butt" },
-      { id: "p246", name: "Dost Muhammad" },
-      { id: "p247", name: "Fazal Butt" },
-      { id: "p248", name: "Gulzar Khan" },
-      { id: "p249", name: "Haider Ali" },
-      { id: "p250", name: "Inzamam Jr" },
-      { id: "p251", name: "Javed Raza" },
-      { id: "p252", name: "Khuram Iqbal" },
-      { id: "p253", name: "Latif Ullah" },
-    ],
-  },
-  {
-    id: "t24",
-    name: "Muzaffargarh Mustangs",
-    players: [
-      { id: "p254", name: "Mansoor Ali" },
-      { id: "p255", name: "Nawab Khan" },
-      { id: "p256", name: "Owais Butt" },
-      { id: "p257", name: "Parvaiz Ahmed" },
-      { id: "p258", name: "Qayyum Ali" },
-      { id: "p259", name: "Ramzan Khan" },
-      { id: "p260", name: "Sajid Ahmed" },
-      { id: "p261", name: "Tariq Butt" },
-      { id: "p262", name: "Umar Latif" },
-      { id: "p263", name: "Vaqar Hussain" },
-      { id: "p264", name: "Wasiq Ali" },
-    ],
-  },
+interface MyTeam {
+  id: string;
+  name: string;
+  logo?: string; // base64
+  players: Player[];
+}
+
+interface CcbUser {
+  name: string;
+  phone: string;
+}
+
+const DEFAULT_TEAMS: Team[] = [
+  { id: "dt1", name: "118 DNB", players: [] },
+  { id: "dt2", name: "122 DNB", players: [] },
+  { id: "dt3", name: "7 DRB", players: [] },
+  { id: "dt4", name: "14 DRB", players: [] },
+  { id: "dt5", name: "10 DRB", players: [] },
+  { id: "dt6", name: "18 DRB", players: [] },
+  { id: "dt7", name: "120 DNB", players: [] },
+  { id: "dt8", name: "4 DRB", players: [] },
+  { id: "dt9", name: "19 DRB", players: [] },
+  { id: "dt10", name: "5 DRB", players: [] },
+  { id: "dt11", name: "9 DRB", players: [] },
+  { id: "dt12", name: "121 DNB", players: [] },
+  { id: "dt13", name: "120 DNB (B)", players: [] },
+  { id: "dt14", name: "142 DRB", players: [] },
+  { id: "dt15", name: "119 DNB", players: [] },
+  { id: "dt16", name: "20 DRB", players: [] },
+  { id: "dt17", name: "8 DRB", players: [] },
+  { id: "dt18", name: "130 DNB", players: [] },
+  { id: "dt19", name: "94 DB", players: [] },
+  { id: "dt20", name: "92 DB", players: [] },
 ];
 
+// Keep legacy TEAMS for backwards compat (tournament etc)
+const TEAMS: Team[] = DEFAULT_TEAMS;
 // ──────────────────────────────────────────────────────────────
 // HELPERS
 // ──────────────────────────────────────────────────────────────
@@ -917,10 +549,12 @@ interface HomeViewProps {
   onEditTeams: () => void;
   onTournament: () => void;
   onFixedSchedule: () => void;
-  onAnnouncements: () => void;
   onLiveMatch: () => void;
-  onPostVote: () => void;
   pastMatches: MatchRecord[];
+  currentUser?: CcbUser | null;
+  myTeamsCount?: number;
+  onCreateTeam?: () => void;
+  onLogout?: () => void;
 }
 
 function HomeView({
@@ -929,11 +563,46 @@ function HomeView({
   onEditTeams,
   onTournament,
   onFixedSchedule,
-  onAnnouncements,
   onLiveMatch,
-  onPostVote,
   pastMatches,
+  currentUser,
+  myTeamsCount = 0,
+  onCreateTeam,
+  onLogout,
 }: HomeViewProps) {
+  const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(null);
+  const [pwaInstalled, setPwaInstalled] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setPwaInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", () => setPwaInstalled(true));
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (pwaInstallPrompt) {
+      pwaInstallPrompt.prompt();
+      const result = await pwaInstallPrompt.userChoice;
+      if (result.outcome === "accepted") setPwaInstalled(true);
+    } else {
+      alert('To install: tap the browser menu → "Add to Home Screen"');
+    }
+  };
+
+  const handleShareApp = () => {
+    const url = window.location.href;
+    const msg = encodeURIComponent(
+      `Check out CCB Scoring Pro - Cricket Scoring App! ${url}`,
+    );
+    window.open(`https://wa.me/?text=${msg}`, "_blank");
+  };
+
   const [showHistory, setShowHistory] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -945,10 +614,26 @@ function HomeView({
       }}
     >
       {/* Header */}
-      <header className="pt-10 pb-6 px-6 text-center">
+      <header className="pt-10 pb-6 px-6 text-center relative">
+        {currentUser && (
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <span className="text-white/60 text-xs font-body truncate max-w-[100px]">
+              {currentUser.name}
+            </span>
+            <button
+              type="button"
+              data-ocid="home.logout.button"
+              onClick={onLogout}
+              title="Logout"
+              className="text-white/40 hover:text-red-400 transition-colors text-xs px-2 py-1 rounded border border-white/10 cursor-pointer bg-transparent"
+            >
+              ⏏
+            </button>
+          </div>
+        )}
         <div className="flex justify-center mb-4">
           <img
-            src="/assets/generated/logo-hb-cricket-transparent.dim_512x512.png"
+            src="/assets/uploads/1774176112122_1-1.png"
             alt="CCB SCORING PRO"
             className="w-20 h-20 object-contain"
             style={{ filter: "drop-shadow(0 0 16px #00ff88)" }}
@@ -971,7 +656,227 @@ function HomeView({
       <div className="mx-6 h-px bg-primary/20" />
 
       {/* Action Buttons */}
-      <main className="flex-1 flex flex-col items-center gap-4 px-6 py-8 pb-24">
+      <main className="flex-1 flex flex-col items-center gap-4 px-6 py-8 pb-36">
+        {/* Hero Welcome Section */}
+        <div
+          className="w-full max-w-sm"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(0,180,80,0.12) 0%, rgba(0,0,0,0) 100%)",
+            borderRadius: "20px",
+            padding: "24px 20px",
+            marginBottom: "4px",
+            border: "1px solid rgba(0,180,80,0.25)",
+            textAlign: "center",
+          }}
+        >
+          <h1
+            style={{
+              fontSize: "1.6rem",
+              fontWeight: 800,
+              color: "#00e676",
+              margin: "0 0 4px",
+              letterSpacing: "-0.5px",
+            }}
+          >
+            {currentUser
+              ? `Welcome, ${currentUser.name}! 👋`
+              : "CCB Scoring Pro"}
+          </h1>
+          <p
+            style={{
+              color: "rgba(255,255,255,0.65)",
+              fontSize: "0.9rem",
+              margin: "0 0 18px",
+              lineHeight: 1.4,
+            }}
+          >
+            {myTeamsCount > 0
+              ? `You have ${myTeamsCount} team${myTeamsCount !== 1 ? "s" : ""}. Ready to start a match!`
+              : "Create your team and start live cricket scoring easily"}
+          </p>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <motion.button
+              type="button"
+              data-ocid="home.hero.create_team.primary_button"
+              whileTap={{ scale: 0.95 }}
+              onClick={onCreateTeam || onTeams}
+              style={{
+                background: "linear-gradient(135deg,#00e676,#00b248)",
+                color: "#000",
+                fontWeight: 700,
+                fontSize: "0.9rem",
+                border: "none",
+                borderRadius: 14,
+                padding: "11px 22px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                boxShadow: "0 4px 15px rgba(0,230,118,0.4)",
+                minWidth: 130,
+              }}
+            >
+              <span>👥</span> Create Team
+            </motion.button>
+            <motion.button
+              type="button"
+              data-ocid="home.hero.setup.secondary_button"
+              whileTap={{ scale: 0.95 }}
+              onClick={onSetup}
+              style={{
+                background: "transparent",
+                color: "#00e676",
+                fontWeight: 700,
+                fontSize: "0.9rem",
+                border: "2px solid #00e676",
+                borderRadius: 14,
+                padding: "11px 22px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                minWidth: 130,
+              }}
+            >
+              <span>🏏</span> Start Match
+            </motion.button>
+          </div>
+        </div>
+
+        {/* Onboarding Steps */}
+        {myTeamsCount === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              gap: 7,
+              justifyContent: "center",
+              flexWrap: "wrap",
+              width: "100%",
+              maxWidth: "24rem",
+            }}
+          >
+            {(
+              [
+                { step: 1, icon: "👥", label: "Create Team" },
+                { step: 2, icon: "➕", label: "Add Players" },
+                { step: 3, icon: "🏏", label: "Start Match" },
+              ] as const
+            ).map(({ step, icon, label }) => (
+              <div
+                key={step}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(0,230,118,0.2)",
+                  borderRadius: 30,
+                  padding: "5px 12px",
+                  fontSize: "0.78rem",
+                  color: "rgba(255,255,255,0.75)",
+                }}
+              >
+                <span
+                  style={{
+                    background: "rgba(0,230,118,0.2)",
+                    color: "#00e676",
+                    borderRadius: "50%",
+                    width: 20,
+                    height: 20,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.68rem",
+                    fontWeight: 700,
+                    flexShrink: 0,
+                  }}
+                >
+                  {step}
+                </span>
+                <span>{icon}</span>
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div
+            style={{
+              textAlign: "center",
+              fontSize: "0.8rem",
+              color: "rgba(255,255,255,0.45)",
+              width: "100%",
+              maxWidth: "24rem",
+            }}
+          >
+            🏆 Quick start: pick teams and score your match!
+          </div>
+        )}
+
+        {/* PWA + Share Row */}
+        {!pwaInstalled && (
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              justifyContent: "center",
+              flexWrap: "wrap",
+              width: "100%",
+              maxWidth: "24rem",
+            }}
+          >
+            {pwaInstallPrompt && (
+              <button
+                type="button"
+                data-ocid="home.install_app.button"
+                onClick={handleInstallApp}
+                style={{
+                  background: "rgba(0,100,255,0.15)",
+                  color: "#60a5fa",
+                  border: "1px solid rgba(96,165,250,0.35)",
+                  borderRadius: 12,
+                  padding: "8px 14px",
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+              >
+                📲 Install App
+              </button>
+            )}
+            <button
+              type="button"
+              data-ocid="home.share_app.button"
+              onClick={handleShareApp}
+              style={{
+                background: "rgba(37,211,102,0.12)",
+                color: "#25d366",
+                border: "1px solid rgba(37,211,102,0.35)",
+                borderRadius: 12,
+                padding: "8px 14px",
+                fontSize: "0.82rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              <Share2 size={13} /> Share App
+            </button>
+          </div>
+        )}
+
         {/* Dashboard Icon Cards Grid */}
         <div className="w-full max-w-sm grid grid-cols-2 gap-4">
           {/* Start Match Card */}
@@ -1110,32 +1015,6 @@ function HomeView({
             </span>
           </motion.button>
 
-          {/* Announcements Card */}
-          <motion.button
-            type="button"
-            data-ocid="home.announcements.secondary_button"
-            whileTap={{ scale: 0.94 }}
-            onClick={onAnnouncements}
-            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 cursor-pointer"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
-              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
-            }}
-          >
-            <img
-              src="/assets/generated/icon-scoreboard-transparent.dim_256x256.png"
-              alt="Announcements"
-              className="w-14 h-14 object-contain"
-              style={{
-                filter:
-                  "drop-shadow(0 0 10px #00ff88) drop-shadow(0 0 20px #00cc66)",
-              }}
-            />
-            <span className="text-sm font-bold text-white tracking-wide text-center leading-tight">
-              ANNOUNCEMENTS
-            </span>
-          </motion.button>
           {/* Live Match Card */}
           <motion.button
             type="button"
@@ -1161,38 +1040,6 @@ function HomeView({
             />
             <span className="text-sm font-bold text-red-300 tracking-wide text-center leading-tight">
               LIVE MATCH
-            </span>
-          </motion.button>
-
-          {/* POST & VOTE Card */}
-          <motion.button
-            type="button"
-            data-ocid="home.post_vote.primary_button"
-            whileTap={{ scale: 0.94 }}
-            onClick={onPostVote}
-            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(0,230,118,0.12) 0%, rgba(0,230,118,0.04) 100%)",
-              borderColor: "rgba(0,230,118,0.35)",
-              boxShadow:
-                "0 4px 16px rgba(0,230,118,0.15), 0 4px 20px rgba(0,0,0,0.5)",
-            }}
-          >
-            <img
-              src="/assets/generated/icon-settings-transparent.dim_256x256.png"
-              alt="Match Prediction"
-              className="w-14 h-14 object-contain"
-              style={{
-                filter:
-                  "drop-shadow(0 0 10px #ffd700) drop-shadow(0 0 20px #00ff88)",
-              }}
-            />
-            <span
-              className="text-sm font-bold tracking-wide text-center leading-tight"
-              style={{ color: "#e2e8f0" }}
-            >
-              POST &amp; VOTE
             </span>
           </motion.button>
         </div>
@@ -1258,10 +1105,10 @@ function HomeView({
       <div
         style={{
           position: "fixed",
-          bottom: 0,
+          bottom: "64px",
           left: 0,
           right: 0,
-          zIndex: 50,
+          zIndex: 49,
           background: "#0D0D0D",
           borderTop: "1px solid rgba(250,255,0,0.2)",
           padding: "10px 16px",
@@ -1715,16 +1562,24 @@ interface SetupViewProps {
   onBack: () => void;
   onStart: (teamA: Team, teamB: Team, overs: number) => void;
   teams: Team[];
+  myTeams?: MyTeam[];
 }
 
-function SetupView({ onBack, onStart, teams }: SetupViewProps) {
+function SetupView({ onBack, onStart, teams, myTeams = [] }: SetupViewProps) {
+  // Combine: default teams + user's teams (convert MyTeam → Team)
+  const myTeamsAsTeams: Team[] = myTeams.map((t) => ({
+    id: t.id,
+    name: t.name,
+    players: t.players,
+  }));
   const [teamAId, setTeamAId] = useState("");
   const [teamBId, setTeamBId] = useState("");
   const [overs, setOvers] = useState(6);
   const [error, setError] = useState("");
 
-  const teamA = teams.find((t) => t.id === teamAId) ?? null;
-  const teamB = teams.find((t) => t.id === teamBId) ?? null;
+  const allSelectableTeams = [...teams, ...myTeamsAsTeams];
+  const teamA = allSelectableTeams.find((t) => t.id === teamAId) ?? null;
+  const teamB = allSelectableTeams.find((t) => t.id === teamBId) ?? null;
 
   function handleStart() {
     if (!teamA || !teamB) {
@@ -1783,11 +1638,36 @@ function SetupView({ onBack, onStart, teams }: SetupViewProps) {
               <option value="" disabled style={{ background: "#111" }}>
                 Select Team A...
               </option>
-              {teams.map((t) => (
-                <option key={t.id} value={t.id} style={{ background: "#111" }}>
-                  {t.name}
-                </option>
-              ))}
+              <optgroup
+                label="─── Default Teams ───"
+                style={{ background: "#111", color: "#00e676" }}
+              >
+                {teams.map((t) => (
+                  <option
+                    key={t.id}
+                    value={t.id}
+                    style={{ background: "#111" }}
+                  >
+                    {t.name}
+                  </option>
+                ))}
+              </optgroup>
+              {myTeamsAsTeams.length > 0 && (
+                <optgroup
+                  label="─── My Teams ───"
+                  style={{ background: "#111", color: "#ffd600" }}
+                >
+                  {myTeamsAsTeams.map((t) => (
+                    <option
+                      key={t.id}
+                      value={t.id}
+                      style={{ background: "#111" }}
+                    >
+                      {t.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
           </div>
 
@@ -1809,17 +1689,40 @@ function SetupView({ onBack, onStart, teams }: SetupViewProps) {
               <option value="" disabled style={{ background: "#111" }}>
                 Select Team B...
               </option>
-              {teams
-                .filter((t) => t.id !== teamAId)
-                .map((t) => (
-                  <option
-                    key={t.id}
-                    value={t.id}
-                    style={{ background: "#111" }}
-                  >
-                    {t.name}
-                  </option>
-                ))}
+              <optgroup
+                label="─── Default Teams ───"
+                style={{ background: "#111", color: "#00e676" }}
+              >
+                {teams
+                  .filter((t) => t.id !== teamAId)
+                  .map((t) => (
+                    <option
+                      key={t.id}
+                      value={t.id}
+                      style={{ background: "#111" }}
+                    >
+                      {t.name}
+                    </option>
+                  ))}
+              </optgroup>
+              {myTeamsAsTeams.length > 0 && (
+                <optgroup
+                  label="─── My Teams ───"
+                  style={{ background: "#111", color: "#ffd600" }}
+                >
+                  {myTeamsAsTeams
+                    .filter((t) => t.id !== teamAId)
+                    .map((t) => (
+                      <option
+                        key={t.id}
+                        value={t.id}
+                        style={{ background: "#111" }}
+                      >
+                        {t.name}
+                      </option>
+                    ))}
+                </optgroup>
+              )}
             </select>
           </div>
 
@@ -5050,6 +4953,136 @@ async function saveAsPdf(
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// LOGIN SCREEN
+// ──────────────────────────────────────────────────────────────
+
+function LoginScreen({ onLogin }: { onLogin: (user: CcbUser) => void }) {
+  const [name, setName] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [error, setError] = React.useState("");
+
+  function handleSubmit() {
+    if (!name.trim()) {
+      setError("Please enter your name.");
+      return;
+    }
+    if (!phone.trim() || !/^[0-9+\-\s]{7,15}$/.test(phone.trim())) {
+      setError("Please enter a valid phone number.");
+      return;
+    }
+    setError("");
+    const user: CcbUser = { name: name.trim(), phone: phone.trim() };
+    try {
+      localStorage.setItem("ccb_user", JSON.stringify(user));
+    } catch {}
+    onLogin(user);
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="fixed inset-0 flex flex-col items-center justify-center z-50 px-6"
+      style={{
+        background:
+          "linear-gradient(160deg,#000000 0%,#001a0a 60%,#000d1a 100%)",
+      }}
+    >
+      <div className="w-full max-w-sm">
+        {/* Logo */}
+        <div className="flex flex-col items-center mb-8">
+          <img
+            src="/assets/uploads/1774176112122_1-1.png"
+            alt="CCB"
+            className="w-20 h-20 object-contain mb-4"
+            style={{ filter: "drop-shadow(0 0 16px #00ff88)" }}
+          />
+          <h1 className="font-display font-bold text-primary text-2xl tracking-widest uppercase">
+            CCB SCORING PRO
+          </h1>
+          <p className="text-white/50 font-body text-sm mt-1">
+            Welcome — please sign in to continue
+          </p>
+        </div>
+
+        {/* Form Card */}
+        <div
+          className="rounded-2xl p-6 space-y-4"
+          style={{
+            background: "rgba(0,255,136,0.05)",
+            border: "1px solid rgba(0,255,136,0.2)",
+          }}
+        >
+          <div>
+            <label
+              htmlFor="login-name"
+              className="block text-white/70 text-xs font-body font-semibold mb-1.5 uppercase tracking-wider"
+            >
+              Your Name
+            </label>
+            <input
+              id="login-name"
+              data-ocid="login.name.input"
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setError("");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              placeholder="Enter your full name"
+              className="w-full bg-black/40 border border-primary/30 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-primary/60 font-body"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="login-phone"
+              className="block text-white/70 text-xs font-body font-semibold mb-1.5 uppercase tracking-wider"
+            >
+              Phone Number
+            </label>
+            <input
+              id="login-phone"
+              data-ocid="login.phone.input"
+              type="tel"
+              value={phone}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                setError("");
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              placeholder="03XX-XXXXXXX"
+              className="w-full bg-black/40 border border-primary/30 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-primary/60 font-body"
+            />
+          </div>
+          {error && (
+            <p data-ocid="login.error_state" className="text-red-400 text-xs">
+              {error}
+            </p>
+          )}
+          <motion.button
+            type="button"
+            data-ocid="login.submit_button"
+            whileTap={{ scale: 0.97 }}
+            onClick={handleSubmit}
+            className="w-full py-3.5 rounded-xl font-display font-bold text-black text-base tracking-wider cursor-pointer border-0"
+            style={{
+              background: "linear-gradient(135deg,#00e676,#00b248)",
+              boxShadow: "0 4px 20px rgba(0,230,118,0.4)",
+            }}
+          >
+            ENTER APP 🏏
+          </motion.button>
+        </div>
+        <p className="text-white/30 text-xs text-center mt-4 font-body">
+          Your data is stored on this device only
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
 function SplashScreen({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     const t = setTimeout(onDone, 2000);
@@ -5065,7 +5098,7 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
       transition={{ duration: 0.4 }}
     >
       <img
-        src="/assets/generated/logo-hb-cricket-transparent.dim_512x512.png"
+        src="/assets/uploads/1774176112122_1-1.png"
         alt="CCB SCORING PRO"
         className="w-28 h-28 object-contain select-none"
         style={{ filter: "drop-shadow(0 0 20px #FACC15)" }}
@@ -6457,8 +6490,1283 @@ function PostVoteView({
   );
 }
 
+// ──────────────────────────────────────────────────────────────
+// BOTTOM NAV
+// ──────────────────────────────────────────────────────────────
+
+type Tab = "home" | "teams" | "matches" | "community";
+
+function BottomNav({
+  activeTab,
+  onTab,
+}: {
+  activeTab: Tab;
+  onTab: (tab: Tab) => void;
+}) {
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    {
+      id: "home",
+      label: "Home",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="w-5 h-5"
+          role="img"
+          aria-label="Home"
+        >
+          <title>Home</title>
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+          <polyline points="9 22 9 12 15 12 15 22" />
+        </svg>
+      ),
+    },
+    {
+      id: "teams",
+      label: "Teams",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="w-5 h-5"
+          role="img"
+          aria-label="Teams"
+        >
+          <title>Teams</title>
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      ),
+    },
+    {
+      id: "matches",
+      label: "Matches",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="w-5 h-5"
+          role="img"
+          aria-label="Matches"
+        >
+          <title>Matches</title>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32" />
+        </svg>
+      ),
+    },
+    {
+      id: "community",
+      label: "Community",
+      icon: (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="w-5 h-5"
+          role="img"
+          aria-label="Community"
+        >
+          <title>Community</title>
+          <path d="M18 8h1a4 4 0 0 1 0 8h-1" />
+          <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" />
+          <line x1="6" y1="1" x2="6" y2="4" />
+          <line x1="10" y1="1" x2="10" y2="4" />
+          <line x1="14" y1="1" x2="14" y2="4" />
+        </svg>
+      ),
+    },
+  ];
+
+  return (
+    <div
+      className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-around"
+      style={{
+        background: "rgba(8, 14, 8, 0.97)",
+        borderTop: "1px solid rgba(0,255,136,0.15)",
+        backdropFilter: "blur(10px)",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        height: "64px",
+      }}
+    >
+      {tabs.map((tab) => {
+        const isActive = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            data-ocid={`nav.${tab.id}.tab`}
+            onClick={() => onTab(tab.id)}
+            className="flex flex-col items-center justify-center gap-1 flex-1 h-full cursor-pointer border-0 bg-transparent transition-all duration-200"
+            style={{
+              color: isActive ? "#00ff88" : "rgba(255,255,255,0.4)",
+            }}
+          >
+            <span
+              style={{
+                transform: isActive ? "scale(1.15)" : "scale(1)",
+                transition: "transform 0.2s",
+                filter: isActive ? "drop-shadow(0 0 6px #00ff88)" : "none",
+              }}
+            >
+              {tab.icon}
+            </span>
+            <span
+              className="text-xs font-bold tracking-wide"
+              style={{ fontSize: "10px" }}
+            >
+              {tab.label.toUpperCase()}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// TEAMS TAB VIEW (upgraded player management)
+// ──────────────────────────────────────────────────────────────
+
+function TeamsTabView({
+  teams,
+  myTeams = [],
+  isAdminUnlocked,
+  onUnlockAdmin,
+  onAddPlayer,
+  onEditPlayer,
+  onDeletePlayer,
+  onAddMyTeamPlayer,
+  onEditMyTeamPlayer: _onEditMyTeamPlayer,
+  onDeleteMyTeamPlayer,
+  onDeleteMyTeam,
+  onEditMyTeamName,
+  onCreateTeam,
+}: {
+  teams: Team[];
+  myTeams?: MyTeam[];
+  isAdminUnlocked: boolean;
+  onUnlockAdmin: () => void;
+  onAddPlayer: (teamId: string, player: Player) => void;
+  onEditPlayer: (teamId: string, player: Player) => void;
+  onDeletePlayer: (teamId: string, playerId: string) => void;
+  onAddMyTeamPlayer?: (teamId: string, player: Player) => void;
+  onEditMyTeamPlayer?: (teamId: string, player: Player) => void;
+  onDeleteMyTeamPlayer?: (teamId: string, playerId: string) => void;
+  onDeleteMyTeam?: (teamId: string) => void;
+  onEditMyTeamName?: (teamId: string, name: string) => void;
+  onCreateTeam?: () => void;
+}) {
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [activeSection, setActiveSection] = React.useState<"default" | "mine">(
+    "default",
+  );
+  const [myTeamExpanded, setMyTeamExpanded] = React.useState<string | null>(
+    null,
+  );
+  const [editingTeamName, setEditingTeamName] = React.useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [myAddDialog, setMyAddDialog] = React.useState<{
+    teamId: string;
+  } | null>(null);
+  const [myPlayerName, setMyPlayerName] = React.useState("");
+  const [myPlayerRole, setMyPlayerRole] =
+    React.useState<Player["role"]>("batsman");
+  const [addDialog, setAddDialog] = React.useState<{ teamId: string } | null>(
+    null,
+  );
+  const [editDialog, setEditDialog] = React.useState<{
+    teamId: string;
+    player: Player;
+  } | null>(null);
+  const [playerName, setPlayerName] = React.useState("");
+  const [playerRole, setPlayerRole] = React.useState<Player["role"]>("batsman");
+
+  const roleColors: Record<string, string> = {
+    batsman: "#3b82f6",
+    bowler: "#ef4444",
+    allrounder: "#a855f7",
+  };
+  const roleLabels: Record<string, string> = {
+    batsman: "BAT",
+    bowler: "BOWL",
+    allrounder: "ALL",
+  };
+
+  function openAdd(teamId: string) {
+    if (!isAdminUnlocked) {
+      onUnlockAdmin();
+      return;
+    }
+    setPlayerName("");
+    setPlayerRole("batsman");
+    setAddDialog({ teamId });
+  }
+
+  function openEdit(teamId: string, player: Player) {
+    if (!isAdminUnlocked) {
+      onUnlockAdmin();
+      return;
+    }
+    setPlayerName(player.name);
+    setPlayerRole(player.role ?? "batsman");
+    setEditDialog({ teamId, player });
+  }
+
+  function handleSaveAdd() {
+    if (!addDialog || !playerName.trim()) return;
+    const newPlayer: Player = {
+      id: `p_${Date.now()}`,
+      name: playerName.trim(),
+      role: playerRole,
+    };
+    onAddPlayer(addDialog.teamId, newPlayer);
+    setAddDialog(null);
+  }
+
+  function handleSaveEdit() {
+    if (!editDialog || !playerName.trim()) return;
+    onEditPlayer(editDialog.teamId, {
+      ...editDialog.player,
+      name: playerName.trim(),
+      role: playerRole,
+    });
+    setEditDialog(null);
+  }
+
+  function handleDelete(teamId: string, playerId: string) {
+    if (!isAdminUnlocked) {
+      onUnlockAdmin();
+      return;
+    }
+    if (confirm("Delete this player?")) onDeletePlayer(teamId, playerId);
+  }
+
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{
+        background:
+          "linear-gradient(160deg, #000000 0%, #001a0a 60%, #000d1a 100%)",
+      }}
+    >
+      {/* Header */}
+      <header className="flex items-center justify-between px-4 pt-10 pb-4 border-b border-primary/20">
+        <div>
+          <h2 className="text-primary font-display font-bold text-xl tracking-wide">
+            TEAMS
+          </h2>
+          <p className="text-white/50 text-xs font-body">
+            {teams.length} Default • {myTeams.length} My Teams
+          </p>
+        </div>
+        <button
+          type="button"
+          data-ocid="teams.admin.toggle"
+          onClick={onUnlockAdmin}
+          className="text-xs px-3 py-1.5 rounded-lg border cursor-pointer"
+          style={{
+            borderColor: isAdminUnlocked ? "#00ff88" : "rgba(255,255,255,0.2)",
+            color: isAdminUnlocked ? "#00ff88" : "rgba(255,255,255,0.5)",
+            background: isAdminUnlocked ? "rgba(0,255,136,0.1)" : "transparent",
+          }}
+        >
+          {isAdminUnlocked ? "🔓 ADMIN" : "🔒 ADMIN"}
+        </button>
+      </header>
+
+      {/* Section Tabs */}
+      <div className="flex gap-2 px-4 pt-3 pb-1">
+        {(["default", "mine"] as const).map((sec) => (
+          <button
+            key={sec}
+            type="button"
+            data-ocid={`teams.${sec}.tab`}
+            onClick={() => setActiveSection(sec)}
+            className="flex-1 py-2 rounded-xl text-sm font-bold cursor-pointer border-0 transition-all"
+            style={{
+              background:
+                activeSection === sec
+                  ? "rgba(0,255,136,0.18)"
+                  : "rgba(255,255,255,0.05)",
+              color:
+                activeSection === sec ? "#00ff88" : "rgba(255,255,255,0.45)",
+              border:
+                activeSection === sec
+                  ? "1px solid rgba(0,255,136,0.4)"
+                  : "1px solid rgba(255,255,255,0.1)",
+            }}
+          >
+            {sec === "default"
+              ? `🏏 Default (${teams.length})`
+              : `⭐ My Teams (${myTeams.length})`}
+          </button>
+        ))}
+      </div>
+
+      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-2 pb-24">
+        {/* MY TEAMS SECTION */}
+        {activeSection === "mine" && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              data-ocid="teams.create_team.button"
+              onClick={onCreateTeam}
+              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer border-0 flex items-center justify-center gap-2"
+              style={{
+                background: "linear-gradient(135deg,#00e676,#00b248)",
+                color: "#000",
+                boxShadow: "0 4px 15px rgba(0,230,118,0.3)",
+              }}
+            >
+              <span>➕</span> Create New Team
+            </button>
+            {myTeams.length === 0 ? (
+              <div
+                data-ocid="teams.my.empty_state"
+                style={{
+                  textAlign: "center",
+                  padding: "40px 20px",
+                  background: "rgba(255,255,255,0.03)",
+                  borderRadius: 16,
+                  border: "1px dashed rgba(255,255,255,0.15)",
+                }}
+              >
+                <div style={{ fontSize: "3rem", marginBottom: 12 }}>🏏</div>
+                <p
+                  style={{
+                    color: "rgba(255,255,255,0.5)",
+                    fontSize: "1rem",
+                    marginBottom: 8,
+                  }}
+                >
+                  No Teams Yet
+                </p>
+                <p
+                  style={{
+                    color: "rgba(255,255,255,0.3)",
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  Create your first team to get started
+                </p>
+              </div>
+            ) : (
+              myTeams.map((team) => (
+                <div
+                  key={team.id}
+                  data-ocid={"teams.my.card"}
+                  style={{
+                    background: "rgba(255,215,0,0.05)",
+                    border: "1px solid rgba(255,215,0,0.2)",
+                    borderRadius: 16,
+                    overflow: "hidden",
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="flex items-center gap-3 p-3 cursor-pointer w-full text-left border-0 bg-transparent"
+                    onClick={() =>
+                      setMyTeamExpanded(
+                        myTeamExpanded === team.id ? null : team.id,
+                      )
+                    }
+                  >
+                    {team.logo ? (
+                      <img
+                        src={team.logo}
+                        alt={team.name}
+                        className="w-10 h-10 rounded-full object-cover border border-yellow-400/30"
+                      />
+                    ) : (
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-black text-sm flex-shrink-0"
+                        style={{
+                          background: "linear-gradient(135deg,#ffd600,#ff8c00)",
+                        }}
+                      >
+                        {team.name.substring(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      {editingTeamName?.id === team.id ? (
+                        <input
+                          type="text"
+                          value={editingTeamName.name}
+                          onChange={(e) =>
+                            setEditingTeamName({
+                              ...editingTeamName,
+                              name: e.target.value,
+                            })
+                          }
+                          onBlur={() => {
+                            onEditMyTeamName?.(team.id, editingTeamName.name);
+                            setEditingTeamName(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              onEditMyTeamName?.(team.id, editingTeamName.name);
+                              setEditingTeamName(null);
+                            }
+                          }}
+                          className="bg-black/50 border border-yellow-400/40 rounded px-2 py-1 text-white text-sm w-full outline-none"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <p className="text-white font-bold text-sm truncate">
+                          {team.name}
+                        </p>
+                      )}
+                      <p
+                        style={{
+                          color: "rgba(255,255,255,0.4)",
+                          fontSize: "0.75rem",
+                        }}
+                      >
+                        {team.players.length} players
+                      </p>
+                    </div>
+                    <div
+                      className="flex items-center gap-1.5"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        data-ocid="teams.my.edit_button"
+                        onClick={() =>
+                          setEditingTeamName({ id: team.id, name: team.name })
+                        }
+                        className="p-1.5 rounded-lg cursor-pointer border-0 bg-transparent"
+                        style={{ color: "#ffd600" }}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        data-ocid="teams.my.delete_button"
+                        onClick={() => {
+                          if (confirm(`Delete "${team.name}"?`))
+                            onDeleteMyTeam?.(team.id);
+                        }}
+                        className="p-1.5 rounded-lg cursor-pointer border-0 bg-transparent"
+                        style={{ color: "#ef4444" }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      {myTeamExpanded === team.id ? (
+                        <ChevronUp size={16} style={{ color: "#ffd600" }} />
+                      ) : (
+                        <ChevronDown
+                          size={16}
+                          style={{ color: "rgba(255,255,255,0.3)" }}
+                        />
+                      )}
+                    </div>
+                  </button>
+                  {myTeamExpanded === team.id && (
+                    <div
+                      style={{
+                        borderTop: "1px solid rgba(255,215,0,0.15)",
+                        padding: "10px 12px",
+                      }}
+                    >
+                      {team.players.map((pl) => (
+                        <div
+                          key={pl.id}
+                          className="flex items-center gap-2 py-1.5"
+                        >
+                          <div
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                            style={{
+                              background:
+                                pl.role === "bowler"
+                                  ? "rgba(239,68,68,0.3)"
+                                  : pl.role === "allrounder"
+                                    ? "rgba(168,85,247,0.3)"
+                                    : "rgba(59,130,246,0.3)",
+                              color:
+                                pl.role === "bowler"
+                                  ? "#ef4444"
+                                  : pl.role === "allrounder"
+                                    ? "#a855f7"
+                                    : "#60a5fa",
+                            }}
+                          >
+                            {pl.name.charAt(0)}
+                          </div>
+                          <span className="text-white/80 text-sm flex-1">
+                            {pl.name}
+                          </span>
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded font-bold"
+                            style={{
+                              background:
+                                pl.role === "bowler"
+                                  ? "rgba(239,68,68,0.2)"
+                                  : pl.role === "allrounder"
+                                    ? "rgba(168,85,247,0.2)"
+                                    : "rgba(59,130,246,0.2)",
+                              color:
+                                pl.role === "bowler"
+                                  ? "#ef4444"
+                                  : pl.role === "allrounder"
+                                    ? "#a855f7"
+                                    : "#60a5fa",
+                            }}
+                          >
+                            {pl.role === "allrounder"
+                              ? "ALL"
+                              : pl.role === "bowler"
+                                ? "BOWL"
+                                : "BAT"}
+                          </span>
+                          <button
+                            type="button"
+                            data-ocid="teams.my.player.delete_button"
+                            onClick={() =>
+                              onDeleteMyTeamPlayer?.(team.id, pl.id)
+                            }
+                            className="p-1 rounded cursor-pointer border-0 bg-transparent"
+                            style={{ color: "#ef4444" }}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        data-ocid="teams.my.add_player.button"
+                        onClick={() => {
+                          setMyPlayerName("");
+                          setMyPlayerRole("batsman");
+                          setMyAddDialog({ teamId: team.id });
+                        }}
+                        className="mt-2 w-full py-2 rounded-lg text-xs font-bold cursor-pointer border-0 flex items-center justify-center gap-1"
+                        style={{
+                          background: "rgba(255,215,0,0.12)",
+                          color: "#ffd600",
+                          border: "1px dashed rgba(255,215,0,0.3)",
+                        }}
+                      >
+                        <Plus size={12} /> Add Player
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* DEFAULT TEAMS SECTION */}
+        {activeSection === "default" && teams.length === 0 && (
+          <div
+            data-ocid="teams.empty_state"
+            style={{
+              textAlign: "center",
+              padding: "40px 20px",
+              background: "rgba(255,255,255,0.03)",
+              borderRadius: 16,
+              border: "1px dashed rgba(255,255,255,0.15)",
+              margin: "12px 0",
+            }}
+          >
+            <div style={{ fontSize: "3rem", marginBottom: 12 }}>🏏</div>
+            <p
+              style={{
+                color: "rgba(255,255,255,0.5)",
+                fontSize: "1rem",
+                marginBottom: 16,
+                fontFamily: "sans-serif",
+              }}
+            >
+              No Teams Added Yet
+            </p>
+            <p style={{ color: "rgba(255,255,255,0.35)", fontSize: "0.8rem" }}>
+              Ask admin to add teams from the directory
+            </p>
+          </div>
+        )}
+        {teams.map((team, tidx) => (
+          <div
+            key={team.id}
+            data-ocid={`teams.item.${tidx + 1}`}
+            className="border border-primary/30 rounded-xl overflow-hidden"
+          >
+            <button
+              type="button"
+              onClick={() => setExpanded(expanded === team.id ? null : team.id)}
+              className="w-full flex items-center justify-between px-4 py-3.5 bg-card hover:bg-primary/5 transition-colors cursor-pointer border-0 text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center">
+                  <Shield size={14} className="text-primary" />
+                </div>
+                <span className="text-white font-body font-semibold text-sm">
+                  {team.name}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-white/40 text-xs font-body">
+                  {team.players.length} players
+                </span>
+                {expanded === team.id ? (
+                  <ChevronUp size={16} className="text-primary" />
+                ) : (
+                  <ChevronDown size={16} className="text-primary" />
+                )}
+              </div>
+            </button>
+
+            <AnimatePresence>
+              {expanded === team.id && (
+                <motion.div
+                  initial={{ height: 0 }}
+                  animate={{ height: "auto" }}
+                  exit={{ height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="bg-background border-t border-primary/20 px-3 py-3 space-y-1.5">
+                    {team.players.length === 0 ? (
+                      <div
+                        data-ocid="teams.empty_state"
+                        className="text-center py-6"
+                      >
+                        <p className="text-white/40 text-sm font-body mb-3">
+                          No players added yet
+                        </p>
+                        {isAdminUnlocked && (
+                          <button
+                            type="button"
+                            data-ocid="teams.add_player.button"
+                            onClick={() => openAdd(team.id)}
+                            className="text-xs px-4 py-2 rounded-lg border border-primary/50 text-primary cursor-pointer bg-primary/10"
+                          >
+                            + Add First Player
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      team.players.map((p, pidx) => (
+                        <div
+                          key={p.id}
+                          data-ocid={`teams.player.item.${pidx + 1}`}
+                          className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-white/5"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {/* Avatar */}
+                            <div
+                              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                              style={{
+                                background: "rgba(0,255,136,0.15)",
+                                color: "#00ff88",
+                                border: "1px solid rgba(0,255,136,0.3)",
+                              }}
+                            >
+                              {p.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-white text-sm font-body">
+                                  {p.name}
+                                </span>
+                                {p.isCaptain && (
+                                  <span
+                                    className="text-xs font-bold px-1 rounded"
+                                    style={{
+                                      background: "rgba(255,215,0,0.2)",
+                                      color: "#ffd700",
+                                    }}
+                                  >
+                                    C
+                                  </span>
+                                )}
+                                {p.isViceCaptain && (
+                                  <span
+                                    className="text-xs font-bold px-1 rounded"
+                                    style={{
+                                      background: "rgba(192,192,192,0.2)",
+                                      color: "#c0c0c0",
+                                    }}
+                                  >
+                                    VC
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                {p.role && (
+                                  <span
+                                    className="text-xs font-bold px-1.5 py-0.5 rounded"
+                                    style={{
+                                      background: `${roleColors[p.role]}25`,
+                                      color: roleColors[p.role],
+                                      fontSize: "10px",
+                                    }}
+                                  >
+                                    {roleLabels[p.role]}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {isAdminUnlocked && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                data-ocid={`teams.player.edit_button.${pidx + 1}`}
+                                onClick={() => openEdit(team.id, p)}
+                                className="p-1.5 rounded cursor-pointer border-0 bg-transparent text-white/40 hover:text-primary"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                data-ocid={`teams.player.delete_button.${pidx + 1}`}
+                                onClick={() => handleDelete(team.id, p.id)}
+                                className="p-1.5 rounded cursor-pointer border-0 bg-transparent text-white/40 hover:text-red-400"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                    {isAdminUnlocked && team.players.length > 0 && (
+                      <button
+                        type="button"
+                        data-ocid="teams.add_player.button"
+                        onClick={() => openAdd(team.id)}
+                        className="w-full mt-2 py-2 rounded-lg border border-dashed border-primary/30 text-primary/60 text-xs font-bold cursor-pointer bg-transparent hover:bg-primary/5"
+                      >
+                        + ADD PLAYER
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        ))}
+      </main>
+
+      {/* Add Player Dialog */}
+      <Dialog open={!!addDialog} onOpenChange={() => setAddDialog(null)}>
+        <DialogContent className="bg-card border-primary/30 mx-4 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-primary font-display">
+              ADD PLAYER
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <input
+              data-ocid="teams.add_player.input"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Player name"
+              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-primary/60"
+            />
+            <div className="flex gap-2">
+              {(["batsman", "bowler", "allrounder"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setPlayerRole(r)}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold cursor-pointer border transition-all"
+                  style={{
+                    background:
+                      playerRole === r ? `${roleColors[r]}20` : "transparent",
+                    borderColor:
+                      playerRole === r
+                        ? roleColors[r]
+                        : "rgba(255,255,255,0.2)",
+                    color:
+                      playerRole === r
+                        ? roleColors[r]
+                        : "rgba(255,255,255,0.5)",
+                  }}
+                >
+                  {roleLabels[r]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setAddDialog(null)}
+              className="flex-1 py-2 rounded-lg border border-white/20 text-white/60 text-sm cursor-pointer bg-transparent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-ocid="teams.add_player.submit_button"
+              onClick={handleSaveAdd}
+              className="flex-1 py-2 rounded-lg text-sm font-bold cursor-pointer"
+              style={{
+                background: "rgba(0,255,136,0.2)",
+                color: "#00ff88",
+                border: "1px solid rgba(0,255,136,0.4)",
+              }}
+            >
+              ADD
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Player Dialog */}
+      <Dialog open={!!editDialog} onOpenChange={() => setEditDialog(null)}>
+        <DialogContent className="bg-card border-primary/30 mx-4 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-primary font-display">
+              EDIT PLAYER
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <input
+              data-ocid="teams.edit_player.input"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              placeholder="Player name"
+              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-primary/60"
+            />
+            <div className="flex gap-2">
+              {(["batsman", "bowler", "allrounder"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setPlayerRole(r)}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold cursor-pointer border transition-all"
+                  style={{
+                    background:
+                      playerRole === r ? `${roleColors[r]}20` : "transparent",
+                    borderColor:
+                      playerRole === r
+                        ? roleColors[r]
+                        : "rgba(255,255,255,0.2)",
+                    color:
+                      playerRole === r
+                        ? roleColors[r]
+                        : "rgba(255,255,255,0.5)",
+                  }}
+                >
+                  {roleLabels[r]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setEditDialog(null)}
+              className="flex-1 py-2 rounded-lg border border-white/20 text-white/60 text-sm cursor-pointer bg-transparent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-ocid="teams.edit_player.save_button"
+              onClick={handleSaveEdit}
+              className="flex-1 py-2 rounded-lg text-sm font-bold cursor-pointer"
+              style={{
+                background: "rgba(0,255,136,0.2)",
+                color: "#00ff88",
+                border: "1px solid rgba(0,255,136,0.4)",
+              }}
+            >
+              SAVE
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* My Team Add Player Dialog */}
+      <Dialog open={!!myAddDialog} onOpenChange={() => setMyAddDialog(null)}>
+        <DialogContent className="bg-card border-primary/30 mx-4 max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="text-primary font-display text-center">
+              ADD PLAYER
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <input
+              data-ocid="teams.my.player_name.input"
+              type="text"
+              value={myPlayerName}
+              onChange={(e) => setMyPlayerName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && myAddDialog && myPlayerName.trim()) {
+                  onAddMyTeamPlayer?.(myAddDialog.teamId, {
+                    id: `mp_${Date.now()}`,
+                    name: myPlayerName.trim(),
+                    role: myPlayerRole,
+                  });
+                  setMyAddDialog(null);
+                }
+              }}
+              placeholder="Player name"
+              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60"
+            />
+            <select
+              data-ocid="teams.my.player_role.select"
+              value={myPlayerRole}
+              onChange={(e) =>
+                setMyPlayerRole(e.target.value as Player["role"])
+              }
+              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60 cursor-pointer"
+            >
+              <option value="batsman" style={{ background: "#111" }}>
+                Batsman
+              </option>
+              <option value="bowler" style={{ background: "#111" }}>
+                Bowler
+              </option>
+              <option value="allrounder" style={{ background: "#111" }}>
+                All-Rounder
+              </option>
+            </select>
+          </div>
+          <DialogFooter className="flex gap-2">
+            <button
+              type="button"
+              data-ocid="teams.my.add_player.cancel_button"
+              onClick={() => setMyAddDialog(null)}
+              className="flex-1 py-2.5 rounded-lg text-sm border border-white/20 text-white/60 cursor-pointer bg-transparent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-ocid="teams.my.add_player.confirm_button"
+              onClick={() => {
+                if (!myAddDialog || !myPlayerName.trim()) return;
+                onAddMyTeamPlayer?.(myAddDialog.teamId, {
+                  id: `mp_${Date.now()}`,
+                  name: myPlayerName.trim(),
+                  role: myPlayerRole,
+                });
+                setMyAddDialog(null);
+              }}
+              className="flex-1 py-2.5 rounded-lg font-bold text-sm cursor-pointer text-black border-0"
+              style={{ background: "linear-gradient(135deg,#00e676,#00b248)" }}
+            >
+              Add
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// MATCHES TAB VIEW
+// ──────────────────────────────────────────────────────────────
+
+function MatchesTabView({
+  pastMatches,
+  onStartMatch,
+  onTournament,
+  isAdminUnlocked,
+  onUnlockAdmin,
+  onDeleteMatch,
+}: {
+  pastMatches: MatchRecord[];
+  onStartMatch: () => void;
+  onTournament: () => void;
+  isAdminUnlocked: boolean;
+  onUnlockAdmin: () => void;
+  onDeleteMatch: (id: string) => void;
+}) {
+  // Build leaderboard
+  const leaderboard = React.useMemo(() => {
+    const stats: Record<string, { played: number; won: number; lost: number }> =
+      {};
+    for (const m of pastMatches) {
+      const teamA = m.teamA.name;
+      const teamB = m.teamB.name;
+      if (!stats[teamA]) stats[teamA] = { played: 0, won: 0, lost: 0 };
+      if (!stats[teamB]) stats[teamB] = { played: 0, won: 0, lost: 0 };
+      stats[teamA].played++;
+      stats[teamB].played++;
+      if (m.resultText) {
+        if (
+          m.resultText.includes(`${teamA} won`) ||
+          m.resultText.includes(`${teamA} Won`)
+        ) {
+          stats[teamA].won++;
+          stats[teamB].lost++;
+        } else if (
+          m.resultText.includes(`${teamB} won`) ||
+          m.resultText.includes(`${teamB} Won`)
+        ) {
+          stats[teamB].won++;
+          stats[teamA].lost++;
+        }
+      }
+    }
+    return Object.entries(stats)
+      .map(([team, s]) => ({ team, ...s, pts: s.won * 2 }))
+      .sort((a, b) => b.pts - a.pts || b.won - a.won);
+  }, [pastMatches]);
+
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{
+        background:
+          "linear-gradient(160deg, #000000 0%, #001a0a 60%, #000d1a 100%)",
+      }}
+    >
+      <header className="flex items-center justify-between px-4 pt-10 pb-4 border-b border-primary/20">
+        <h2 className="text-primary font-display font-bold text-xl tracking-wide">
+          MATCHES
+        </h2>
+        <button
+          type="button"
+          data-ocid="matches.admin.toggle"
+          onClick={onUnlockAdmin}
+          className="text-xs px-3 py-1.5 rounded-lg border cursor-pointer"
+          style={{
+            borderColor: isAdminUnlocked ? "#00ff88" : "rgba(255,255,255,0.2)",
+            color: isAdminUnlocked ? "#00ff88" : "rgba(255,255,255,0.5)",
+            background: isAdminUnlocked ? "rgba(0,255,136,0.1)" : "transparent",
+          }}
+        >
+          {isAdminUnlocked ? "🔓 ADMIN" : "🔒 ADMIN"}
+        </button>
+      </header>
+
+      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-6 pb-24">
+        {/* Start Match CTA */}
+        <motion.button
+          type="button"
+          data-ocid="matches.start_match.primary_button"
+          whileTap={{ scale: 0.97 }}
+          onClick={onStartMatch}
+          className="w-full py-5 rounded-2xl font-display font-bold text-lg tracking-widest cursor-pointer"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(0,255,136,0.2) 0%, rgba(0,204,102,0.1) 100%)",
+            border: "2px solid rgba(0,255,136,0.5)",
+            color: "#00ff88",
+            boxShadow: "0 0 20px rgba(0,255,136,0.2)",
+          }}
+        >
+          🏏 START NEW MATCH
+        </motion.button>
+
+        {/* Tournament button */}
+        <button
+          type="button"
+          data-ocid="matches.tournament.button"
+          onClick={onTournament}
+          className="w-full py-3.5 rounded-xl font-bold text-sm tracking-wide cursor-pointer"
+          style={{
+            background: "rgba(255,215,0,0.08)",
+            border: "1px solid rgba(255,215,0,0.3)",
+            color: "#ffd700",
+          }}
+        >
+          🏆 TOURNAMENT &amp; POOLS
+        </button>
+
+        {/* Match History */}
+        <div>
+          <h3 className="text-white/60 text-xs font-bold tracking-widest uppercase mb-3">
+            Match History
+          </h3>
+          {pastMatches.length === 0 ? (
+            <div
+              data-ocid="matches.history.empty_state"
+              className="text-center py-10"
+            >
+              <div className="text-4xl mb-3">🏏</div>
+              <p className="text-white/40 font-body text-sm">
+                No match history yet
+              </p>
+              <p className="text-white/25 font-body text-xs mt-1">
+                Start your first match!
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {pastMatches.map((m, i) => (
+                <div
+                  key={m.id}
+                  data-ocid={`matches.history.item.${i + 1}`}
+                  className="border border-primary/20 rounded-xl p-3.5"
+                  style={{ background: "rgba(0,255,136,0.03)" }}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <p className="text-white font-semibold text-sm font-body">
+                        {m.teamA.name} vs {m.teamB.name}
+                      </p>
+                      <p className="text-primary text-xs font-body mt-0.5 leading-relaxed">
+                        {m.resultText}
+                      </p>
+                      <p className="text-white/30 text-xs font-body mt-1">
+                        {m.date}
+                      </p>
+                    </div>
+                    {isAdminUnlocked && (
+                      <button
+                        type="button"
+                        data-ocid={`matches.history.delete_button.${i + 1}`}
+                        onClick={() => {
+                          if (confirm("Delete this match record?"))
+                            onDeleteMatch(m.id);
+                        }}
+                        className="p-1.5 ml-2 text-red-400/50 hover:text-red-400 cursor-pointer border-0 bg-transparent"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Leaderboard */}
+        <div>
+          <h3 className="text-white/60 text-xs font-bold tracking-widest uppercase mb-3">
+            Leaderboard
+          </h3>
+          {leaderboard.length === 0 ? (
+            <div
+              data-ocid="matches.leaderboard.empty_state"
+              className="text-center py-8 text-white/30 text-sm font-body"
+            >
+              Play matches to see the leaderboard
+            </div>
+          ) : (
+            <div className="border border-primary/20 rounded-xl overflow-hidden">
+              <div
+                className="grid grid-cols-5 px-3 py-2 text-xs font-bold tracking-wide text-white/40 border-b border-primary/15"
+                style={{ fontSize: "10px" }}
+              >
+                <span className="col-span-2">TEAM</span>
+                <span className="text-center">P</span>
+                <span className="text-center">W</span>
+                <span className="text-center" style={{ color: "#00ff88" }}>
+                  PTS
+                </span>
+              </div>
+              {leaderboard.map((row, i) => (
+                <div
+                  key={row.team}
+                  data-ocid={`matches.leaderboard.item.${i + 1}`}
+                  className="grid grid-cols-5 px-3 py-2.5 text-sm font-body border-b border-primary/10 last:border-0"
+                  style={{
+                    background:
+                      i === 0 ? "rgba(255,215,0,0.05)" : "transparent",
+                  }}
+                >
+                  <div className="col-span-2 flex items-center gap-1.5">
+                    {i === 0 && <span className="text-xs">🥇</span>}
+                    {i === 1 && <span className="text-xs">🥈</span>}
+                    {i === 2 && <span className="text-xs">🥉</span>}
+                    {i > 2 && (
+                      <span className="text-white/30 text-xs mr-0.5">
+                        {i + 1}
+                      </span>
+                    )}
+                    <span className="text-white text-xs font-semibold truncate">
+                      {row.team}
+                    </span>
+                  </div>
+                  <span className="text-center text-white/60 text-xs">
+                    {row.played}
+                  </span>
+                  <span className="text-center text-white/60 text-xs">
+                    {row.won}
+                  </span>
+                  <span
+                    className="text-center text-xs font-bold"
+                    style={{ color: "#00ff88" }}
+                  >
+                    {row.pts}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// COMMUNITY TAB VIEW
+// ──────────────────────────────────────────────────────────────
+
+function CommunityTabView({ teams }: { teams: Team[] }) {
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{
+        background:
+          "linear-gradient(160deg, #000000 0%, #001a0a 60%, #000d1a 100%)",
+      }}
+    >
+      <header className="px-4 pt-10 pb-4 border-b border-primary/20">
+        <h2 className="text-primary font-display font-bold text-xl tracking-wide">
+          COMMUNITY
+        </h2>
+        <p className="text-white/50 text-xs font-body mt-0.5">
+          Announcements &amp; Predictions
+        </p>
+      </header>
+      <div className="flex-1 overflow-y-auto pb-24">
+        <AnnouncementSection />
+        <PostVoteView onHome={() => {}} teams={teams} />
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
+  const [currentUser, setCurrentUser] = useState<CcbUser | null>(() => {
+    try {
+      const saved = localStorage.getItem("ccb_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [myTeams, setMyTeams] = useState<MyTeam[]>(() => {
+    try {
+      const u = localStorage.getItem("ccb_user");
+      if (!u) return [];
+      const user = JSON.parse(u) as CcbUser;
+      const saved = localStorage.getItem(`ccb_myteams_${user.phone}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [newTeamName, setNewTeamName] = useState("");
+  const [newTeamLogo, setNewTeamLogo] = useState<string | undefined>(undefined);
   const [view, setView] = useState<View>("home");
   const [teams, setTeams] = useState<Team[]>(TEAMS);
   const [showEditTeams, setShowEditTeams] = useState(false);
@@ -6472,6 +7780,33 @@ export default function App() {
   const [pastMatches, setPastMatches] = useState<MatchRecord[]>([]);
   const [tournament, setTournament] = useState<Tournament>(EMPTY_TOURNAMENT);
   const [matchInfoCards, setMatchInfoCards] = useState<MatchInfoCard[]>([]);
+  const [activeTab, setActiveTab] = useState<Tab>("home");
+
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+  const [adminPwdDialog, setAdminPwdDialog] = useState(false);
+  const [adminPwdInput, setAdminPwdInput] = useState("");
+  const [adminPwdError, setAdminPwdError] = useState(false);
+
+  useEffect(() => {
+    // Sync activeTab when view changes via other means
+    if (view === "home") setActiveTab("home");
+    else if (view === "teams" || view === "teams-tab") setActiveTab("teams");
+    else if (
+      view === "setup" ||
+      view === "scoring" ||
+      view === "innings-switch" ||
+      view === "result" ||
+      view === "tournament" ||
+      view === "matches-tab"
+    )
+      setActiveTab("matches");
+    else if (
+      view === "community-tab" ||
+      view === "announcements" ||
+      view === "post-vote"
+    )
+      setActiveTab("community");
+  }, [view]);
 
   useEffect(() => {
     try {
@@ -6496,6 +7831,139 @@ export default function App() {
     try {
       localStorage.setItem("ccb_tournament", JSON.stringify(t));
     } catch {}
+  }
+
+  function handleAddPlayer(teamId: string, player: Player) {
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId ? { ...t, players: [...t.players, player] } : t,
+      ),
+    );
+  }
+
+  function handleEditPlayer(teamId: string, updatedPlayer: Player) {
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId
+          ? {
+              ...t,
+              players: t.players.map((p) =>
+                p.id === updatedPlayer.id ? updatedPlayer : p,
+              ),
+            }
+          : t,
+      ),
+    );
+  }
+
+  function handleDeletePlayer(teamId: string, playerId: string) {
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId
+          ? { ...t, players: t.players.filter((p) => p.id !== playerId) }
+          : t,
+      ),
+    );
+  }
+
+  function handleDeleteMatch(matchId: string) {
+    const updated = pastMatches.filter((m) => m.id !== matchId);
+    setPastMatches(updated);
+    try {
+      localStorage.setItem("ccb_past_matches", JSON.stringify(updated));
+    } catch {}
+  }
+
+  function saveMyTeams(teams: MyTeam[]) {
+    setMyTeams(teams);
+    if (currentUser) {
+      try {
+        localStorage.setItem(
+          `ccb_myteams_${currentUser.phone}`,
+          JSON.stringify(teams),
+        );
+      } catch {}
+    }
+  }
+
+  function handleCreateTeam() {
+    if (!newTeamName.trim()) return;
+    const newTeam: MyTeam = {
+      id: `mt_${Date.now()}`,
+      name: newTeamName.trim(),
+      logo: newTeamLogo,
+      players: [],
+    };
+    saveMyTeams([...myTeams, newTeam]);
+    setNewTeamName("");
+    setNewTeamLogo(undefined);
+    setShowCreateTeam(false);
+  }
+
+  function handleAddMyTeamPlayer(teamId: string, player: Player) {
+    const updated = myTeams.map((t) =>
+      t.id === teamId ? { ...t, players: [...t.players, player] } : t,
+    );
+    saveMyTeams(updated);
+  }
+
+  function handleEditMyTeamPlayer(teamId: string, player: Player) {
+    const updated = myTeams.map((t) =>
+      t.id === teamId
+        ? {
+            ...t,
+            players: t.players.map((p) => (p.id === player.id ? player : p)),
+          }
+        : t,
+    );
+    saveMyTeams(updated);
+  }
+
+  function handleDeleteMyTeamPlayer(teamId: string, playerId: string) {
+    const updated = myTeams.map((t) =>
+      t.id === teamId
+        ? { ...t, players: t.players.filter((p) => p.id !== playerId) }
+        : t,
+    );
+    saveMyTeams(updated);
+  }
+
+  function handleDeleteMyTeam(teamId: string) {
+    saveMyTeams(myTeams.filter((t) => t.id !== teamId));
+  }
+
+  function handleEditMyTeamName(teamId: string, name: string) {
+    const updated = myTeams.map((t) => (t.id === teamId ? { ...t, name } : t));
+    saveMyTeams(updated);
+  }
+
+  function handleLogin(user: CcbUser) {
+    setCurrentUser(user);
+    // Load this user's teams
+    try {
+      const saved = localStorage.getItem(`ccb_myteams_${user.phone}`);
+      setMyTeams(saved ? JSON.parse(saved) : []);
+    } catch {
+      setMyTeams([]);
+    }
+  }
+
+  function handleUnlockAdmin() {
+    if (isAdminUnlocked) {
+      setIsAdminUnlocked(false);
+      return;
+    }
+    setAdminPwdInput("");
+    setAdminPwdError(false);
+    setAdminPwdDialog(true);
+  }
+
+  function handleTab(tab: Tab) {
+    setActiveTab(tab);
+    if (tab === "home") setView("home");
+    else if (tab === "teams") setView("teams-tab");
+    else if (tab === "matches") setView("matches-tab");
+    else if (tab === "community") setView("community-tab");
   }
 
   function handleStartMatch(teamA: Team, teamB: Team, overs: number) {
@@ -6566,8 +8034,151 @@ export default function App() {
     );
   }
 
+  if (!currentUser) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+
   return (
     <div className="bg-background min-h-screen">
+      {/* Create Team Dialog */}
+      <Dialog open={showCreateTeam} onOpenChange={setShowCreateTeam}>
+        <DialogContent className="bg-card border-primary/30 mx-4 max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="text-primary font-display text-center">
+              CREATE TEAM
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <label
+                htmlFor="create-team-name"
+                className="block text-white/70 text-xs font-semibold mb-1.5 uppercase tracking-wider"
+              >
+                Team Name *
+              </label>
+              <input
+                id="create-team-name"
+                data-ocid="create_team.name.input"
+                type="text"
+                value={newTeamName}
+                onChange={(e) => setNewTeamName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreateTeam()}
+                placeholder="e.g. Desert Hawks"
+                className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60"
+              />
+            </div>
+            <div>
+              <p className="block text-white/70 text-xs font-semibold mb-1.5 uppercase tracking-wider">
+                Team Logo (optional)
+              </p>
+              <label
+                data-ocid="create_team.logo.upload_button"
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-primary/20 text-white/60 text-sm cursor-pointer hover:border-primary/40 transition-colors"
+              >
+                <span>📷</span>
+                <span>
+                  {newTeamLogo ? "Logo selected ✓" : "Upload logo from gallery"}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) =>
+                      setNewTeamLogo(ev.target?.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2">
+            <button
+              type="button"
+              data-ocid="create_team.cancel_button"
+              onClick={() => {
+                setShowCreateTeam(false);
+                setNewTeamName("");
+                setNewTeamLogo(undefined);
+              }}
+              className="flex-1 py-2.5 rounded-lg text-sm font-semibold border border-white/20 text-white/60 cursor-pointer bg-transparent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-ocid="create_team.submit_button"
+              onClick={handleCreateTeam}
+              className="flex-1 py-2.5 rounded-lg font-bold text-sm cursor-pointer text-black border-0"
+              style={{ background: "linear-gradient(135deg,#00e676,#00b248)" }}
+            >
+              Create
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Admin Password Dialog */}
+      <Dialog
+        open={adminPwdDialog}
+        onOpenChange={() => setAdminPwdDialog(false)}
+      >
+        <DialogContent className="bg-card border-primary/30 mx-4 max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="text-primary font-display text-center">
+              ADMIN LOGIN
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <input
+              data-ocid="app.admin_password.input"
+              type="password"
+              value={adminPwdInput}
+              onChange={(e) => {
+                setAdminPwdInput(e.target.value);
+                setAdminPwdError(false);
+              }}
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                (() => {
+                  if (adminPwdInput === "Shahzad@99") {
+                    setIsAdminUnlocked(true);
+                    setAdminPwdDialog(false);
+                  } else setAdminPwdError(true);
+                })()
+              }
+              placeholder="Enter admin password"
+              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60"
+            />
+            {adminPwdError && (
+              <p className="text-red-400 text-xs mt-1">Incorrect password</p>
+            )}
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              data-ocid="app.admin_password.submit_button"
+              onClick={() => {
+                if (adminPwdInput === "Shahzad@99") {
+                  setIsAdminUnlocked(true);
+                  setAdminPwdDialog(false);
+                } else setAdminPwdError(true);
+              }}
+              className="w-full py-2.5 rounded-lg font-bold text-sm cursor-pointer"
+              style={{
+                background: "rgba(0,255,136,0.2)",
+                color: "#00ff88",
+                border: "1px solid rgba(0,255,136,0.4)",
+              }}
+            >
+              UNLOCK
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AnimatePresence mode="wait">
         {view === "home" && (
           <HomeView
@@ -6577,10 +8188,18 @@ export default function App() {
             onEditTeams={() => setShowEditTeams(true)}
             onTournament={() => setView("tournament")}
             onFixedSchedule={() => setView("fixed-schedule")}
-            onAnnouncements={() => setView("announcements")}
             onLiveMatch={() => setView("live-match")}
-            onPostVote={() => setView("post-vote")}
             pastMatches={pastMatches}
+            currentUser={currentUser}
+            myTeamsCount={myTeams.length}
+            onCreateTeam={() => setShowCreateTeam(true)}
+            onLogout={() => {
+              try {
+                localStorage.removeItem("ccb_user");
+              } catch {}
+              setCurrentUser(null);
+              setMyTeams([]);
+            }}
           />
         )}
 
@@ -6594,6 +8213,7 @@ export default function App() {
             onBack={() => setView("home")}
             onStart={handleStartMatch}
             teams={teams}
+            myTeams={myTeams}
           />
         )}
 
@@ -6677,7 +8297,47 @@ export default function App() {
             teams={teams}
           />
         )}
+        {view === "teams-tab" && (
+          <TeamsTabView
+            key="teams-tab"
+            teams={teams}
+            myTeams={myTeams}
+            isAdminUnlocked={isAdminUnlocked}
+            onUnlockAdmin={handleUnlockAdmin}
+            onAddPlayer={handleAddPlayer}
+            onEditPlayer={handleEditPlayer}
+            onDeletePlayer={handleDeletePlayer}
+            onAddMyTeamPlayer={handleAddMyTeamPlayer}
+            onEditMyTeamPlayer={handleEditMyTeamPlayer}
+            onDeleteMyTeamPlayer={handleDeleteMyTeamPlayer}
+            onDeleteMyTeam={handleDeleteMyTeam}
+            onEditMyTeamName={handleEditMyTeamName}
+            onCreateTeam={() => setShowCreateTeam(true)}
+          />
+        )}
+
+        {view === "matches-tab" && (
+          <MatchesTabView
+            key="matches-tab"
+            pastMatches={pastMatches}
+            onStartMatch={() => setView("setup")}
+            onTournament={() => setView("tournament")}
+            isAdminUnlocked={isAdminUnlocked}
+            onUnlockAdmin={handleUnlockAdmin}
+            onDeleteMatch={handleDeleteMatch}
+          />
+        )}
+
+        {view === "community-tab" && (
+          <CommunityTabView key="community-tab" teams={teams} />
+        )}
       </AnimatePresence>
+
+      {/* Fixed Bottom Navigation — hidden during scoring */}
+      {!["scoring", "innings-switch"].includes(view) && (
+        <BottomNav activeTab={activeTab} onTab={handleTab} />
+      )}
+
       <EditTeamsDialog
         open={showEditTeams}
         teams={teams}

@@ -128,3 +128,42 @@
     font-family: sans-serif;
   }
 }
+
+/* Button click animation */
+button {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+button:active {
+  transform: scale(0.95) !important;
+}
+
+/* Mobile text overflow prevention */
+* {
+  box-sizing: border-box;
+}
+
+/* Smooth page transitions */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.page-enter {
+  animation: fadeIn 0.25s ease;
+}
+
+/* Responsive text */
+@media (max-width: 400px) {
+  h1 {
+    word-break: break-word;
+  }
+  .overflow-fix {
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+}
