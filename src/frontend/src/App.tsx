@@ -976,7 +976,7 @@ function HomeView({
         <button
           type="button"
           data-ocid="home.tournament.secondary_button"
-          onClick={() => requestProtected("tournament")}
+          onClick={onTournament}
           className="w-full max-w-sm h-14 rounded-xl font-body font-semibold text-base text-primary border-2 border-primary/60 bg-transparent cursor-pointer hover:bg-primary/10 transition-colors flex items-center justify-center gap-2"
         >
           <Trophy size={18} />
@@ -2472,6 +2472,10 @@ function TournamentView({
   const [activeTab, setActiveTab] = useState<
     "setup" | "schedule" | "standings"
   >("setup");
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminPwdDialog, setAdminPwdDialog] = useState(false);
+  const [adminPwdInput, setAdminPwdInput] = useState("");
+  const [adminPwdError, setAdminPwdError] = useState(false);
   const [scoreDialog, setScoreDialog] = useState<ScoreDialogState>({
     open: false,
     matchId: "",
@@ -2581,7 +2585,7 @@ function TournamentView({
       status: "scheduled",
       pwdInput: "",
       pwdError: false,
-      pwdVerified: false,
+      pwdVerified: adminUnlocked,
     });
   }
 
@@ -2694,28 +2698,66 @@ function TournamentView({
             >
               TOURNAMENT
             </h1>
-            <p className="text-white/50 text-xs font-body">ٹورنامنٹ مینجمنٹ</p>
+            <p className="text-white/50 text-xs font-body">
+              Tournament Management
+            </p>
           </div>
+          <button
+            type="button"
+            data-ocid="tournament.admin_lock.toggle"
+            onClick={() => {
+              if (adminUnlocked) {
+                setAdminUnlocked(false);
+              } else {
+                setAdminPwdDialog(true);
+              }
+            }}
+            className={`h-10 w-10 rounded-lg border flex items-center justify-center cursor-pointer transition-colors text-base ${adminUnlocked ? "border-green-400/50 bg-green-400/10 text-green-400 hover:bg-green-400/20" : "border-white/20 bg-transparent text-white/60 hover:bg-white/10"}`}
+            title={
+              adminUnlocked
+                ? "Admin unlocked — click to lock"
+                : "Click to unlock admin"
+            }
+          >
+            {adminUnlocked ? "🔓" : "🔒"}
+          </button>
         </div>
 
         {/* Tournament Name */}
-        <input
-          type="text"
-          data-ocid="tournament.name.input"
-          value={tournament.name}
-          onChange={(e) => updateTournament({ name: e.target.value })}
-          className="w-full bg-transparent border border-primary/40 rounded-xl px-4 py-3 text-white font-body font-semibold text-lg focus:outline-none focus:border-primary"
-          placeholder="Tournament Name / ٹورنامنٹ کا نام"
-        />
+        {adminUnlocked ? (
+          <input
+            type="text"
+            data-ocid="tournament.name.input"
+            value={tournament.name}
+            onChange={(e) => updateTournament({ name: e.target.value })}
+            className="w-full bg-transparent border border-primary/40 rounded-xl px-4 py-3 text-white font-body font-semibold text-lg focus:outline-none focus:border-primary"
+            placeholder="Tournament Name"
+          />
+        ) : (
+          <button
+            type="button"
+            data-ocid="tournament.name.button"
+            onClick={() => setAdminPwdDialog(true)}
+            className="w-full border border-white/10 rounded-xl px-4 py-3 text-white font-body font-semibold text-lg bg-white/5 cursor-pointer hover:border-primary/40 hover:bg-white/10 transition-colors flex items-center justify-between group text-left"
+          >
+            <span>{tournament.name || "Tournament Name"}</span>
+            <span className="text-xs text-white/30 group-hover:text-primary/70 transition-colors flex items-center gap-1">
+              ✏️{" "}
+              <span className="hidden sm:inline text-white/40">
+                tap to edit
+              </span>
+            </span>
+          </button>
+        )}
       </header>
 
       {/* Tab Bar */}
       <div className="flex border-b border-white/10 px-4">
         {(["setup", "schedule", "standings"] as const).map((tab) => {
           const labels: Record<string, string> = {
-            setup: "سیٹ اپ",
-            schedule: "شیڈول",
-            standings: "اسٹینڈنگز",
+            setup: "Setup",
+            schedule: "Schedule",
+            standings: "Standings",
           };
           return (
             <button
@@ -2741,7 +2783,7 @@ function TournamentView({
           <div className="space-y-4">
             {tournament.pools.length === 0 && (
               <p className="text-white/40 text-center py-8 font-body text-sm">
-                کوئی پول نہیں۔ نیچے بٹن دبا کر پول شامل کریں۔
+                No pools yet. Click Add Pool below.
               </p>
             )}
             {tournament.pools.map((pool) => {
@@ -2763,19 +2805,24 @@ function TournamentView({
                       type="text"
                       data-ocid="tournament.pool_name.input"
                       value={pool.name}
-                      onChange={(e) => updatePoolName(pool.id, e.target.value)}
-                      className="w-16 bg-transparent border border-primary/40 rounded-lg px-2 py-1 text-primary font-display font-bold text-lg text-center focus:outline-none focus:border-primary"
+                      onChange={(e) =>
+                        adminUnlocked && updatePoolName(pool.id, e.target.value)
+                      }
+                      readOnly={!adminUnlocked}
+                      className={`w-16 bg-transparent border rounded-lg px-2 py-1 text-primary font-display font-bold text-lg text-center focus:outline-none ${adminUnlocked ? "border-primary/40 focus:border-primary" : "border-white/10 cursor-default"}`}
                       maxLength={3}
                     />
                     <div className="flex-1" />
-                    <button
-                      type="button"
-                      data-ocid="tournament.pool.delete_button"
-                      onClick={() => deletePool(pool.id)}
-                      className="h-8 w-8 rounded-lg border border-red-500/40 text-red-400 flex items-center justify-center cursor-pointer hover:bg-red-500/10 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {adminUnlocked && (
+                      <button
+                        type="button"
+                        data-ocid="tournament.pool.delete_button"
+                        onClick={() => deletePool(pool.id)}
+                        className="h-8 w-8 rounded-lg border border-red-500/40 text-red-400 flex items-center justify-center cursor-pointer hover:bg-red-500/10 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
 
                   {/* Team list */}
@@ -2791,26 +2838,28 @@ function TournamentView({
                           <span className="flex-1 text-white font-body text-sm">
                             {t?.name ?? tid}
                           </span>
-                          <button
-                            type="button"
-                            data-ocid="tournament.team.delete_button"
-                            onClick={() => removeTeamFromPool(pool.id, tid)}
-                            className="text-red-400 hover:text-red-300 cursor-pointer"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          {adminUnlocked && (
+                            <button
+                              type="button"
+                              data-ocid="tournament.team.delete_button"
+                              onClick={() => removeTeamFromPool(pool.id, tid)}
+                              className="text-red-400 hover:text-red-300 cursor-pointer"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
                         </div>
                       );
                     })}
                     {pool.teamIds.length === 0 && (
                       <p className="text-white/30 text-xs font-body text-center py-2">
-                        کوئی ٹیم نہیں — نیچے سے ٹیم منتخب کریں
+                        No teams — select from below
                       </p>
                     )}
                   </div>
 
                   {/* Add team dropdown */}
-                  {pool.teamIds.length < 5 && (
+                  {pool.teamIds.length < 5 && adminUnlocked && (
                     <select
                       data-ocid="tournament.team.select"
                       className="w-full bg-black border border-white/20 rounded-lg px-3 py-2 text-white/80 font-body text-sm focus:outline-none focus:border-primary"
@@ -2820,7 +2869,7 @@ function TournamentView({
                           addTeamToPool(pool.id, e.target.value);
                       }}
                     >
-                      <option value="">+ ٹیم شامل کریں</option>
+                      <option value="">+ Add Team</option>
                       {availableTeams
                         .filter((t) => !pool.teamIds.includes(t.id))
                         .map((t) => (
@@ -2832,14 +2881,14 @@ function TournamentView({
                   )}
                   {pool.teamIds.length >= 5 && (
                     <p className="text-white/30 text-xs font-body text-center">
-                      زیادہ سے زیادہ 5 ٹیمیں فی پول
+                      Maximum 5 teams per pool
                     </p>
                   )}
                 </div>
               );
             })}
 
-            {tournament.pools.length < 4 && (
+            {tournament.pools.length < 4 && adminUnlocked && (
               <button
                 type="button"
                 data-ocid="tournament.add_pool.button"
@@ -2847,7 +2896,7 @@ function TournamentView({
                 className="w-full h-12 rounded-xl border-2 border-dashed border-primary/40 text-primary font-body font-semibold text-sm cursor-pointer hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                پول شامل کریں / Add Pool
+                Add Pool
               </button>
             )}
           </div>
@@ -2858,7 +2907,7 @@ function TournamentView({
           <div className="space-y-6">
             {tournament.pools.length === 0 && (
               <p className="text-white/40 text-center py-8 font-body text-sm">
-                پہلے سیٹ اپ میں پول بنائیں
+                Create pools in Setup tab first
               </p>
             )}
             {tournament.pools.map((pool) => {
@@ -2873,7 +2922,7 @@ function TournamentView({
                     <h2 className="text-primary font-display font-bold text-base tracking-wider">
                       POOL {pool.name}
                     </h2>
-                    {pool.teamIds.length >= 2 && (
+                    {pool.teamIds.length >= 2 && adminUnlocked && (
                       <button
                         type="button"
                         data-ocid="tournament.add_match.button"
@@ -2881,7 +2930,7 @@ function TournamentView({
                         className="h-8 px-3 rounded-lg border border-primary/50 text-primary text-xs font-body font-semibold cursor-pointer hover:bg-primary/10 transition-colors flex items-center gap-1"
                       >
                         <Plus size={12} />
-                        میچ شامل کریں
+                        Add Match
                       </button>
                     )}
                   </div>
@@ -2929,62 +2978,82 @@ function TournamentView({
                                 {m.time ?? ""}
                               </span>
                             )}
-                            <button
-                              type="button"
-                              data-ocid={`tournament.match.delete_button.${idx + 1}`}
-                              onClick={() => confirmDeleteMatch(m.id)}
-                              className="text-red-400/60 hover:text-red-400 cursor-pointer ml-1"
-                            >
-                              <Trash2 size={13} />
-                            </button>
+                            {adminUnlocked && (
+                              <button
+                                type="button"
+                                data-ocid={`tournament.match.delete_button.${idx + 1}`}
+                                onClick={() => confirmDeleteMatch(m.id)}
+                                className="text-red-400/60 hover:text-red-400 cursor-pointer ml-1"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
                           </div>
                           {/* Team selectors */}
                           <div className="flex items-center gap-2">
-                            <select
-                              data-ocid="tournament.match_home.select"
-                              className="flex-1 bg-black border border-white/20 rounded-lg px-2 py-1.5 text-white font-body text-xs focus:outline-none focus:border-primary"
-                              value={m.homeTeamId}
-                              onChange={(e) =>
-                                updateMatchTeam(
-                                  m.id,
-                                  "homeTeamId",
-                                  e.target.value,
-                                )
-                              }
-                            >
-                              {pool.teamIds.map((tid) => {
-                                const t = teams.find((x) => x.id === tid);
-                                return (
-                                  <option key={tid} value={tid}>
-                                    {t?.name ?? tid}
-                                  </option>
-                                );
-                              })}
-                            </select>
-                            <span className="text-white/40 font-body text-xs">
-                              vs
-                            </span>
-                            <select
-                              data-ocid="tournament.match_away.select"
-                              className="flex-1 bg-black border border-white/20 rounded-lg px-2 py-1.5 text-white font-body text-xs focus:outline-none focus:border-primary"
-                              value={m.awayTeamId}
-                              onChange={(e) =>
-                                updateMatchTeam(
-                                  m.id,
-                                  "awayTeamId",
-                                  e.target.value,
-                                )
-                              }
-                            >
-                              {pool.teamIds.map((tid) => {
-                                const t = teams.find((x) => x.id === tid);
-                                return (
-                                  <option key={tid} value={tid}>
-                                    {t?.name ?? tid}
-                                  </option>
-                                );
-                              })}
-                            </select>
+                            {adminUnlocked ? (
+                              <>
+                                <select
+                                  data-ocid="tournament.match_home.select"
+                                  className="flex-1 bg-black border border-white/20 rounded-lg px-2 py-1.5 text-white font-body text-xs focus:outline-none focus:border-primary"
+                                  value={m.homeTeamId}
+                                  onChange={(e) =>
+                                    updateMatchTeam(
+                                      m.id,
+                                      "homeTeamId",
+                                      e.target.value,
+                                    )
+                                  }
+                                >
+                                  {pool.teamIds.map((tid) => {
+                                    const t = teams.find((x) => x.id === tid);
+                                    return (
+                                      <option key={tid} value={tid}>
+                                        {t?.name ?? tid}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                                <span className="text-white/40 font-body text-xs">
+                                  vs
+                                </span>
+                                <select
+                                  data-ocid="tournament.match_away.select"
+                                  className="flex-1 bg-black border border-white/20 rounded-lg px-2 py-1.5 text-white font-body text-xs focus:outline-none focus:border-primary"
+                                  value={m.awayTeamId}
+                                  onChange={(e) =>
+                                    updateMatchTeam(
+                                      m.id,
+                                      "awayTeamId",
+                                      e.target.value,
+                                    )
+                                  }
+                                >
+                                  {pool.teamIds.map((tid) => {
+                                    const t = teams.find((x) => x.id === tid);
+                                    return (
+                                      <option key={tid} value={tid}>
+                                        {t?.name ?? tid}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </>
+                            ) : (
+                              <>
+                                <span className="flex-1 text-white font-body text-xs text-center py-1.5">
+                                  {teams.find((x) => x.id === m.homeTeamId)
+                                    ?.name ?? m.homeTeamId}
+                                </span>
+                                <span className="text-white/40 font-body text-xs">
+                                  vs
+                                </span>
+                                <span className="flex-1 text-white font-body text-xs text-center py-1.5">
+                                  {teams.find((x) => x.id === m.awayTeamId)
+                                    ?.name ?? m.awayTeamId}
+                                </span>
+                              </>
+                            )}
                           </div>
                           {/* Score display */}
                           {m.status !== "scheduled" && (
@@ -3002,16 +3071,18 @@ function TournamentView({
                               .{(m.awayBalls ?? m.totalOvers * 6) % 6} ov
                             </div>
                           )}
-                          <button
-                            type="button"
-                            data-ocid="tournament.enter_score.button"
-                            onClick={() => openScoreDialog(m)}
-                            className="w-full h-9 rounded-lg border border-primary/40 text-primary text-xs font-body font-semibold cursor-pointer hover:bg-primary/10 transition-colors"
-                          >
-                            {m.status === "scheduled"
-                              ? "سکور درج کریں / Enter Score"
-                              : "سکور ترمیم کریں / Edit Score"}
-                          </button>
+                          {adminUnlocked && (
+                            <button
+                              type="button"
+                              data-ocid="tournament.enter_score.button"
+                              onClick={() => openScoreDialog(m)}
+                              className="w-full h-9 rounded-lg border border-primary/40 text-primary text-xs font-body font-semibold cursor-pointer hover:bg-primary/10 transition-colors"
+                            >
+                              {m.status === "scheduled"
+                                ? "Enter Score"
+                                : "Edit Score"}
+                            </button>
+                          )}
                         </div>
                       );
                     })}
@@ -3027,7 +3098,7 @@ function TournamentView({
           <div className="space-y-6">
             {tournament.pools.length === 0 && (
               <p className="text-white/40 text-center py-8 font-body text-sm">
-                پہلے سیٹ اپ میں پول بنائیں
+                Create pools in Setup tab first
               </p>
             )}
             {tournament.pools.map((pool) => {
@@ -3039,7 +3110,7 @@ function TournamentView({
               return (
                 <div key={pool.id}>
                   <h2 className="text-primary font-display font-bold text-base tracking-wider mb-3">
-                    POOL {pool.name} — اسٹینڈنگز
+                    POOL {pool.name} — Standings
                   </h2>
                   <div className="overflow-x-auto rounded-xl border border-white/10">
                     <table className="w-full text-xs font-body">
@@ -3049,7 +3120,7 @@ function TournamentView({
                             #
                           </th>
                           <th className="text-left text-white/50 font-semibold px-3 py-2">
-                            ٹیم
+                            Team
                           </th>
                           <th className="text-center text-white/50 font-semibold px-2 py-2">
                             P
@@ -3111,7 +3182,7 @@ function TournamentView({
                               colSpan={8}
                               className="text-center text-white/30 py-4"
                             >
-                              کوئی ٹیم نہیں
+                              No teams
                             </td>
                           </tr>
                         )}
@@ -3128,6 +3199,79 @@ function TournamentView({
           </div>
         )}
       </main>
+
+      {/* Admin Password Dialog */}
+      {adminPwdDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="bg-black border border-primary/30 rounded-2xl p-6 w-80 space-y-4">
+            <h3 className="text-primary font-display font-bold text-lg tracking-wider text-center">
+              ADMIN ACCESS
+            </h3>
+            <p className="text-white/60 text-xs font-body text-center">
+              Enter admin password to unlock editing
+            </p>
+            <input
+              type="password"
+              data-ocid="tournament.admin_pwd.input"
+              value={adminPwdInput}
+              onChange={(e) => setAdminPwdInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (adminPwdInput === "Shahzad@99") {
+                    setAdminUnlocked(true);
+                    setAdminPwdDialog(false);
+                    setAdminPwdInput("");
+                    setAdminPwdError(false);
+                  } else {
+                    setAdminPwdError(true);
+                  }
+                }
+              }}
+              placeholder="Enter Admin Password"
+              className="w-full bg-transparent border border-white/20 rounded-lg px-3 py-2 text-white font-body focus:outline-none focus:border-primary"
+            />
+            {adminPwdError && (
+              <p
+                className="text-red-400 text-xs font-body text-center"
+                data-ocid="tournament.admin_pwd.error_state"
+              >
+                Wrong password
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                data-ocid="tournament.admin_pwd.cancel_button"
+                onClick={() => {
+                  setAdminPwdDialog(false);
+                  setAdminPwdInput("");
+                  setAdminPwdError(false);
+                }}
+                className="flex-1 h-10 rounded-lg border border-white/20 text-white/60 font-body text-sm cursor-pointer hover:bg-white/5 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-ocid="tournament.admin_pwd.confirm_button"
+                onClick={() => {
+                  if (adminPwdInput === "Shahzad@99") {
+                    setAdminUnlocked(true);
+                    setAdminPwdDialog(false);
+                    setAdminPwdInput("");
+                    setAdminPwdError(false);
+                  } else {
+                    setAdminPwdError(true);
+                  }
+                }}
+                className="flex-1 h-10 rounded-xl bg-primary text-black font-display font-bold text-sm tracking-wider cursor-pointer hover:opacity-90 transition-opacity"
+              >
+                UNLOCK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Match Dialog */}
       <Dialog
@@ -3369,7 +3513,7 @@ function TournamentView({
         <DialogContent className="bg-black border border-primary/30 text-white max-w-sm mx-auto">
           <DialogHeader>
             <DialogTitle className="text-primary font-display tracking-wider">
-              سکور درج کریں / Enter Score
+              Enter Score
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -3386,7 +3530,7 @@ function TournamentView({
                       htmlFor="sd-total-overs"
                       className="text-white/60 text-xs font-body block mb-1"
                     >
-                      اوورز / Total Overs
+                      Total Overs
                     </label>
                     <input
                       id="sd-total-overs"
@@ -3410,7 +3554,7 @@ function TournamentView({
                         htmlFor="sd-home-runs"
                         className="text-white/60 text-xs font-body block mb-1"
                       >
-                        {homeTeam?.name ?? "Home"} — رنز
+                        {homeTeam?.name ?? "Home"} — Runs
                       </label>
                       <input
                         id="sd-home-runs"
@@ -3432,7 +3576,7 @@ function TournamentView({
                         htmlFor="sd-home-balls"
                         className="text-white/60 text-xs font-body block mb-1"
                       >
-                        {homeTeam?.name ?? "Home"} — گیندیں
+                        {homeTeam?.name ?? "Home"} — Balls
                       </label>
                       <input
                         id="sd-home-balls"
@@ -3455,7 +3599,7 @@ function TournamentView({
                         htmlFor="sd-away-runs"
                         className="text-white/60 text-xs font-body block mb-1"
                       >
-                        {awayTeam?.name ?? "Away"} — رنز
+                        {awayTeam?.name ?? "Away"} — Runs
                       </label>
                       <input
                         id="sd-away-runs"
@@ -3477,7 +3621,7 @@ function TournamentView({
                         htmlFor="sd-away-balls"
                         className="text-white/60 text-xs font-body block mb-1"
                       >
-                        {awayTeam?.name ?? "Away"} — گیندیں
+                        {awayTeam?.name ?? "Away"} — Balls
                       </label>
                       <input
                         id="sd-away-balls"
@@ -3500,7 +3644,7 @@ function TournamentView({
                     {Number.parseInt(scoreDialog.homeRuns || "0") ===
                       Number.parseInt(scoreDialog.awayRuns || "0") &&
                     scoreDialog.homeRuns !== ""
-                      ? "⚠️ برابری — ٹائی میچ"
+                      ? "⚠️ Tied match"
                       : ""}
                   </p>
                 </>
@@ -3524,7 +3668,7 @@ function TournamentView({
               onClick={saveScore}
               className="flex-1 h-10 rounded-lg bg-primary text-black font-body font-bold text-sm cursor-pointer hover:bg-primary/80 transition-colors"
             >
-              محفوظ کریں
+              Save
             </button>
           </DialogFooter>
         </DialogContent>

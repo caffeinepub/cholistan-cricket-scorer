@@ -183,12 +183,14 @@ export default function AnnouncementSection() {
   }
 
   function publishPost() {
-    localStorage.setItem(CAPTION_KEY, captionInput);
-    setCaption(captionInput);
-    if (!captionInput && !imageUrl) {
+    if (!captionInput.trim() && !imageUrl) {
       setShowUploadModal(false);
       return;
     }
+    // Save both caption and image to localStorage on publish
+    localStorage.setItem(CAPTION_KEY, captionInput);
+    setCaption(captionInput);
+    // imageUrl is already persisted in localStorage when file was picked
     setShowUploadModal(false);
     setCaptionInput("");
   }
@@ -224,10 +226,10 @@ export default function AnnouncementSection() {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const dataUrl = ev.target?.result as string;
+          // Save image to localStorage immediately for persistence
           localStorage.setItem(IMAGE_KEY, dataUrl);
-          localStorage.setItem(CAPTION_KEY, captionInput);
+          // Only update image preview; caption/caption state saved on publishPost
           setImageUrl(dataUrl);
-          setCaption(captionInput);
           resolve();
         };
         reader.onerror = reject;
@@ -271,9 +273,9 @@ export default function AnnouncementSection() {
                 onClick={() => requestAdmin("upload")}
                 className="text-orange-400 hover:text-orange-300 text-xs border border-orange-500/50 rounded-md px-2 py-0.5 bg-transparent cursor-pointer transition-colors hover:bg-orange-500/10"
               >
-                📷 Upload
+                ✏️ Post
               </button>
-              {imageUrl && (
+              {(imageUrl || caption) && (
                 <button
                   type="button"
                   data-ocid="announcement.delete_button"
@@ -317,7 +319,7 @@ export default function AnnouncementSection() {
               <div className="text-4xl mb-2">🏏</div>
               <p className="text-white/40 text-sm">No announcement yet</p>
               <p className="text-white/25 text-xs mt-1">
-                Admin can upload a tournament post
+                Admin can post text or upload a tournament photo
               </p>
             </div>
           ) : null}
@@ -576,7 +578,7 @@ export default function AnnouncementSection() {
         >
           <div className="bg-zinc-950 border-2 border-orange-500 rounded-2xl p-6 w-full max-w-xs shadow-2xl">
             <h3 className="text-orange-400 font-bold text-lg mb-1 text-center">
-              📢 New Post
+              ✏️ New Announcement
             </h3>
             <p className="text-white/40 text-xs text-center mb-4">
               Add text, upload a photo, or both
@@ -584,22 +586,22 @@ export default function AnnouncementSection() {
 
             <label
               htmlFor="ann-caption"
-              className="block text-orange-300 text-xs font-semibold mb-1"
+              className="block text-orange-300 text-xs font-semibold mb-1.5"
             >
-              Post Text / Caption
+              📝 Announcement Text
             </label>
             <textarea
               id="ann-caption"
               value={captionInput}
               onChange={(e) => setCaptionInput(e.target.value)}
-              placeholder="Write your announcement here..."
+              placeholder="Write your announcement text here... (required or upload a photo)"
               data-ocid="announcement.textarea"
-              rows={4}
-              className="w-full bg-black text-white border border-orange-500/50 rounded-lg px-3 py-2.5 text-sm mb-3 outline-none focus:border-orange-400 resize-none"
+              rows={5}
+              className="w-full bg-black text-white border border-orange-500/50 rounded-lg px-3 py-2.5 text-sm mb-3 outline-none focus:border-orange-400 resize-none placeholder-white/30"
             />
 
             <p className="block text-orange-300 text-xs font-semibold mb-1">
-              Photo (Optional)
+              📷 Photo (Optional)
             </p>
             <button
               type="button"
@@ -651,8 +653,8 @@ export default function AnnouncementSection() {
               🔒 Admin Verification
             </h3>
             <p className="text-white/40 text-xs text-center mb-4">
-              {adminAction === "upload" && "Enter password to upload image"}
-              {adminAction === "delete" && "Enter password to delete image"}
+              {adminAction === "upload" && "Enter password to create a post"}
+              {adminAction === "delete" && "Enter password to delete post"}
               {adminAction === "delComment" &&
                 "Enter password to delete comment"}
             </p>
