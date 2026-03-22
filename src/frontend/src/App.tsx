@@ -5,11 +5,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+// html2canvas loaded dynamically from CDN
+// jsPDF loaded dynamically from CDN
 import {
+  ArrowLeft,
+  Bell,
+  Calendar,
+  Camera,
+  CheckCircle,
   ChevronDown,
   ChevronUp,
+  Circle,
+  Download,
+  History,
   Home,
+  MessageSquare,
   Pencil,
+  Play,
   Plus,
   Printer,
   RotateCcw,
@@ -18,9 +30,10 @@ import {
   Trash2,
   Trophy,
   Users,
+  Wifi,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import AnnouncementSection from "./components/AnnouncementSection";
 
 // ──────────────────────────────────────────────────────────────
@@ -46,7 +59,12 @@ type View =
   | "scoring"
   | "innings-switch"
   | "result"
-  | "tournament";
+  | "tournament"
+  | "match-info"
+  | "fixed-schedule"
+  | "announcements"
+  | "live-match"
+  | "post-vote";
 
 interface BatsmanState {
   player: Player;
@@ -55,6 +73,14 @@ interface BatsmanState {
   isStriker: boolean;
   isOut: boolean;
   wicketType?: WicketType;
+}
+
+interface BowlerRecord {
+  name: string;
+  overs: number;
+  balls: number;
+  runs: number;
+  wickets: number;
 }
 // ──────────────────────────────────────────────────────────────
 // TOURNAMENT TYPES
@@ -97,6 +123,22 @@ const EMPTY_TOURNAMENT: Tournament = {
   createdAt: "",
 };
 
+// ──────────────────────────────────────────────────────────────
+// MATCH INFO CARD TYPES
+// ──────────────────────────────────────────────────────────────
+
+interface MatchInfoCard {
+  id: string;
+  tournamentName: string;
+  matchTitle: string;
+  coverPhoto: string | null;
+  matchSummary: string;
+  topPerformer: string;
+  location: string;
+  status: "Upcoming" | "Live" | "Completed";
+  date: string;
+}
+
 interface InningsState {
   battingTeam: Team;
   bowlingTeam: Team;
@@ -107,6 +149,7 @@ interface InningsState {
   outBatsmen: BatsmanState[];
   nextBatsmanIndex: number;
   isComplete: boolean;
+  bowlers: BowlerRecord[];
 }
 
 interface MatchRecord {
@@ -575,6 +618,7 @@ function initInnings(batting: Team, bowling: Team): InningsState {
     outBatsmen: [],
     nextBatsmanIndex: 2,
     isComplete: false,
+    bowlers: [],
   };
 }
 
@@ -582,11 +626,46 @@ function isInningsComplete(innings: InningsState, totalOvers: number): boolean {
   return innings.balls >= totalOvers * 6 || innings.wickets >= 10;
 }
 
+/** Update or add a bowler entry when runs are scored. countBall=true for legal deliveries. */
+function updateBowlerRuns(
+  bowlers: BowlerRecord[],
+  name: string,
+  runs: number,
+  countBall: boolean,
+): BowlerRecord[] {
+  const existing = bowlers.find((b) => b.name === name);
+  if (existing) {
+    const newBalls = existing.balls + (countBall ? 1 : 0);
+    return bowlers.map((b) =>
+      b.name === name
+        ? {
+            ...b,
+            runs: b.runs + runs,
+            balls: newBalls,
+            overs: Math.floor(newBalls / 6),
+          }
+        : b,
+    );
+  }
+  const balls = countBall ? 1 : 0;
+  return [...bowlers, { name, overs: 0, balls, runs, wickets: 0 }];
+}
+
+function updateBowlerWicket(
+  bowlers: BowlerRecord[],
+  name: string,
+): BowlerRecord[] {
+  return bowlers.map((b) =>
+    b.name === name ? { ...b, wickets: b.wickets + 1 } : b,
+  );
+}
+
 /** Apply a legal delivery (0–6 runs). Updates runs, balls, strike rotation. */
 function applyLegal(
   innings: InningsState,
   runs: number,
   totalOvers: number,
+  bowlerName: string,
 ): InningsState {
   const newBalls = innings.balls + 1;
   const endOfOver = newBalls % 6 === 0;
@@ -606,11 +685,20 @@ function applyLegal(
     return { ...b, isStriker: rotate };
   });
 
+  // Update bowler stats
+  const updatedBowlers = updateBowlerRuns(
+    innings.bowlers,
+    bowlerName,
+    runs,
+    true,
+  );
+
   const next: InningsState = {
     ...innings,
     totalRuns: innings.totalRuns + runs,
     balls: newBalls,
     activeBatsmen: newActive,
+    bowlers: updatedBowlers,
     isComplete: false,
   };
   next.isComplete = isInningsComplete(next, totalOvers);
@@ -618,8 +706,22 @@ function applyLegal(
 }
 
 /** Apply wide or no-ball: add runs, do NOT count ball. */
-function applyExtra(innings: InningsState, extraRuns: number): InningsState {
-  return { ...innings, totalRuns: innings.totalRuns + extraRuns };
+function applyExtra(
+  innings: InningsState,
+  extraRuns: number,
+  bowlerName: string,
+): InningsState {
+  const updatedBowlers = updateBowlerRuns(
+    innings.bowlers,
+    bowlerName,
+    extraRuns,
+    false,
+  );
+  return {
+    ...innings,
+    totalRuns: innings.totalRuns + extraRuns,
+    bowlers: updatedBowlers,
+  };
 }
 
 /** Apply wicket — must have already determined newBatsman (or null if last wicket). */
@@ -628,6 +730,7 @@ function applyWicket(
   wt: WicketType,
   newBatsman: Player | null,
   totalOvers: number,
+  bowlerName: string,
 ): InningsState {
   const newBalls = innings.balls + 1;
   const endOfOver = newBalls % 6 === 0;
@@ -655,6 +758,12 @@ function applyWicket(
     newActive = [newBsm, ns];
   }
 
+  // Update bowler stats — wicket + 1 ball
+  const updatedBowlers = updateBowlerWicket(
+    updateBowlerRuns(innings.bowlers, bowlerName, 0, true),
+    bowlerName,
+  );
+
   const next: InningsState = {
     ...innings,
     balls: newBalls,
@@ -662,6 +771,7 @@ function applyWicket(
     activeBatsmen: newActive,
     outBatsmen: [...innings.outBatsmen, outRecord],
     nextBatsmanIndex: innings.nextBatsmanIndex + 1,
+    bowlers: updatedBowlers,
     isComplete: false,
   };
   next.isComplete = isInningsComplete(next, totalOvers);
@@ -779,7 +889,10 @@ function Footer({ dev }: { dev?: boolean }) {
 // PAGE TRANSITION WRAPPER
 // ──────────────────────────────────────────────────────────────
 
-function Page({ children }: { children: React.ReactNode }) {
+function Page({
+  children,
+  style,
+}: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 18 }}
@@ -787,6 +900,7 @@ function Page({ children }: { children: React.ReactNode }) {
       exit={{ opacity: 0, y: -18 }}
       transition={{ duration: 0.28, ease: "easeOut" }}
       className="min-h-screen bg-background flex flex-col"
+      style={style}
     >
       {children}
     </motion.div>
@@ -802,6 +916,10 @@ interface HomeViewProps {
   onTeams: () => void;
   onEditTeams: () => void;
   onTournament: () => void;
+  onFixedSchedule: () => void;
+  onAnnouncements: () => void;
+  onLiveMatch: () => void;
+  onPostVote: () => void;
   pastMatches: MatchRecord[];
 }
 
@@ -810,43 +928,30 @@ function HomeView({
   onTeams,
   onEditTeams,
   onTournament,
+  onFixedSchedule,
+  onAnnouncements,
+  onLiveMatch,
+  onPostVote,
   pastMatches,
 }: HomeViewProps) {
   const [showHistory, setShowHistory] = useState(false);
-  const [pwdDialog, setPwdDialog] = useState<{
-    open: boolean;
-    target: "edit" | "tournament" | null;
-  }>({ open: false, target: null });
-  const [pwdInput, setPwdInput] = useState("");
-  const [_pwdError, setPwdError] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
-  function requestProtected(target: "edit" | "tournament") {
-    setPwdInput("");
-    setPwdError(false);
-    setPwdDialog({ open: true, target });
-  }
-
-  function submitPassword() {
-    if (pwdInput === "Shahzad@99") {
-      const t = pwdDialog.target;
-      setPwdDialog({ open: false, target: null });
-      if (t === "edit") onEditTeams();
-      if (t === "tournament") onTournament();
-    } else {
-      setPwdError(true);
-    }
-  }
-
   return (
-    <Page>
+    <Page
+      style={{
+        background:
+          "linear-gradient(160deg, #000000 0%, #001a0a 60%, #000d1a 100%)",
+      }}
+    >
       {/* Header */}
       <header className="pt-10 pb-6 px-6 text-center">
         <div className="flex justify-center mb-4">
           <img
-            src="/assets/uploads/1773769089361-1.png"
+            src="/assets/generated/logo-hb-cricket-transparent.dim_512x512.png"
             alt="CCB SCORING PRO"
-            className="w-16 h-16 rounded-full object-cover border-2 border-primary"
+            className="w-20 h-20 object-contain"
+            style={{ filter: "drop-shadow(0 0 16px #00ff88)" }}
           />
         </div>
         <h1
@@ -865,131 +970,240 @@ function HomeView({
       {/* Divider */}
       <div className="mx-6 h-px bg-primary/20" />
 
-      <AnnouncementSection />
-
       {/* Action Buttons */}
-      <main className="flex-1 flex flex-col items-center gap-4 px-6 py-8">
-        {/* Share & Download Card */}
-        <div
-          className="w-full max-w-sm rounded-2xl p-4"
-          style={{
-            background: "linear-gradient(135deg, #0a0a0a 0%, #0f1a00 100%)",
-            border: "1.5px solid oklch(var(--p))",
-            boxShadow: "0 0 22px oklch(var(--p) / 0.35)",
-          }}
-        >
-          <p className="text-center font-display font-bold text-xs tracking-[0.2em] text-primary/80 uppercase mb-3">
-            Share &amp; Download
-          </p>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              data-ocid="home.copy_link.button"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(window.location.href);
-                  setLinkCopied(true);
-                  setTimeout(() => setLinkCopied(false), 2000);
-                } catch {
-                  /* ignore */
-                }
-              }}
-              className="flex-1 h-11 rounded-xl font-body font-semibold text-sm cursor-pointer transition-all flex items-center justify-center gap-2"
+      <main className="flex-1 flex flex-col items-center gap-4 px-6 py-8 pb-24">
+        {/* Dashboard Icon Cards Grid */}
+        <div className="w-full max-w-sm grid grid-cols-2 gap-4">
+          {/* Start Match Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.start_match.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onSetup}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-yellow-400/30 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(250,255,0,0.12) 0%, rgba(250,255,0,0.04) 100%)",
+              boxShadow:
+                "0 0 24px rgba(250,255,0,0.25), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-start-match-transparent.dim_256x256.png"
+              alt="Start Match"
+              className="w-14 h-14 object-contain"
               style={{
-                background: linkCopied
-                  ? "oklch(var(--p) / 0.15)"
-                  : "transparent",
-                border: "1.5px solid oklch(var(--p) / 0.5)",
-                color: linkCopied
-                  ? "oklch(var(--p))"
-                  : "rgba(255,255,255,0.75)",
+                filter:
+                  "drop-shadow(0 0 12px #00ff88) drop-shadow(0 0 24px #00cc66)",
               }}
-            >
-              {linkCopied ? "✓ COPIED!" : "📋 COPY LINK"}
-            </button>
-            <button
-              type="button"
-              data-ocid="home.share.button"
-              onClick={async () => {
-                try {
-                  if (navigator.share) {
-                    await navigator.share({
-                      title: "CCB SCORING PRO",
-                      text: "Download CCB Live Cricket Scoring App 🏏\nFast Live Score & Tournament Updates",
-                      url: window.location.href,
-                    });
-                  } else {
-                    window.open(
-                      `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\nFast Live Score & Tournament Updates\n${window.location.href}`)}`,
-                      "_blank",
-                    );
-                  }
-                } catch {
-                  window.open(
-                    `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\nFast Live Score & Tournament Updates\n${window.location.href}`)}`,
-                    "_blank",
-                  );
-                }
-              }}
-              className="flex-1 h-11 rounded-xl font-body font-semibold text-sm cursor-pointer transition-all flex items-center justify-center gap-2"
+            />
+            <span className="text-sm font-bold text-yellow-300 tracking-wide text-center leading-tight">
+              START MATCH
+            </span>
+          </motion.button>
+
+          {/* Team Directory Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.teams.secondary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onTeams}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-team-directory-transparent.dim_256x256.png"
+              alt="Team Directory"
+              className="w-14 h-14 object-contain"
               style={{
-                background: "oklch(var(--p) / 0.12)",
-                border: "1.5px solid oklch(var(--p) / 0.5)",
-                color: "oklch(var(--p))",
+                filter:
+                  "drop-shadow(0 0 10px #ffd700) drop-shadow(0 0 20px #cc9900)",
               }}
+            />
+            <span className="text-sm font-bold text-white tracking-wide text-center leading-tight">
+              TEAM DIRECTORY
+            </span>
+          </motion.button>
+
+          {/* Edit Teams Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.edit_teams.secondary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onEditTeams}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-edit-teams-transparent.dim_256x256.png"
+              alt="Edit Teams"
+              className="w-14 h-14 object-contain"
+              style={{
+                filter:
+                  "drop-shadow(0 0 10px #00ff88) drop-shadow(0 0 20px #00aa55)",
+              }}
+            />
+            <span className="text-sm font-bold text-white tracking-wide text-center leading-tight">
+              EDIT TEAMS
+            </span>
+          </motion.button>
+
+          {/* Tournament Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.tournament.secondary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onTournament}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-yellow-400/20 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(250,255,0,0.08) 0%, rgba(250,255,0,0.02) 100%)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-tournament-transparent.dim_256x256.png"
+              alt="Tournament"
+              className="w-14 h-14 object-contain"
+              style={{
+                filter:
+                  "drop-shadow(0 0 12px #ffd700) drop-shadow(0 0 24px #ffaa00)",
+              }}
+            />
+            <span className="text-sm font-bold text-yellow-200 tracking-wide text-center leading-tight">
+              TOURNAMENT
+            </span>
+          </motion.button>
+
+          {/* Fixed Schedule Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.fixed_schedule.secondary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onFixedSchedule}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-yellow-400/20 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(250,255,0,0.08) 0%, rgba(250,255,0,0.02) 100%)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-schedule-transparent.dim_256x256.png"
+              alt="Fixed Schedule"
+              className="w-14 h-14 object-contain"
+              style={{
+                filter:
+                  "drop-shadow(0 0 10px #00ff88) drop-shadow(0 0 20px #ffd700)",
+              }}
+            />
+            <span className="text-sm font-bold text-yellow-200 tracking-wide text-center leading-tight">
+              FIXED SCHEDULE
+            </span>
+          </motion.button>
+
+          {/* Announcements Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.announcements.secondary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onAnnouncements}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-scoreboard-transparent.dim_256x256.png"
+              alt="Announcements"
+              className="w-14 h-14 object-contain"
+              style={{
+                filter:
+                  "drop-shadow(0 0 10px #00ff88) drop-shadow(0 0 20px #00cc66)",
+              }}
+            />
+            <span className="text-sm font-bold text-white tracking-wide text-center leading-tight">
+              ANNOUNCEMENTS
+            </span>
+          </motion.button>
+          {/* Live Match Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.live_match.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onLiveMatch}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border border-red-400/40 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(239,68,68,0.15) 0%, rgba(239,68,68,0.05) 100%)",
+              boxShadow:
+                "0 0 18px rgba(239,68,68,0.3), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-live-match-transparent.dim_256x256.png"
+              alt="Live Match"
+              className="w-14 h-14 object-contain"
+              style={{
+                filter:
+                  "drop-shadow(0 0 12px #ff4444) drop-shadow(0 0 24px #00ff88)",
+              }}
+            />
+            <span className="text-sm font-bold text-red-300 tracking-wide text-center leading-tight">
+              LIVE MATCH
+            </span>
+          </motion.button>
+
+          {/* POST & VOTE Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.post_vote.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onPostVote}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(0,230,118,0.12) 0%, rgba(0,230,118,0.04) 100%)",
+              borderColor: "rgba(0,230,118,0.35)",
+              boxShadow:
+                "0 4px 16px rgba(0,230,118,0.15), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <img
+              src="/assets/generated/icon-settings-transparent.dim_256x256.png"
+              alt="Match Prediction"
+              className="w-14 h-14 object-contain"
+              style={{
+                filter:
+                  "drop-shadow(0 0 10px #ffd700) drop-shadow(0 0 20px #00ff88)",
+              }}
+            />
+            <span
+              className="text-sm font-bold tracking-wide text-center leading-tight"
+              style={{ color: "#e2e8f0" }}
             >
-              <Share2 size={15} />
-              SHARE
-            </button>
-          </div>
+              POST &amp; VOTE
+            </span>
+          </motion.button>
         </div>
-        <button
-          type="button"
-          data-ocid="home.start_match.primary_button"
-          onClick={onSetup}
-          className="w-full max-w-sm h-16 rounded-xl font-display font-bold text-xl tracking-wider text-black bg-primary border-0 cursor-pointer"
-          style={{ boxShadow: "0 0 24px rgba(250,255,0,0.35)" }}
-        >
-          🏏 START MATCH
-        </button>
-
-        <button
-          type="button"
-          data-ocid="home.teams.secondary_button"
-          onClick={onTeams}
-          className="w-full max-w-sm h-14 rounded-xl font-body font-semibold text-base text-primary border-2 border-primary/60 bg-transparent cursor-pointer hover:bg-primary/10 transition-colors flex items-center justify-center gap-2"
-        >
-          <Users size={18} />
-          TEAM DIRECTORY
-        </button>
-
-        <button
-          type="button"
-          data-ocid="home.edit_teams.secondary_button"
-          onClick={() => requestProtected("edit")}
-          className="w-full max-w-sm h-14 rounded-xl font-body font-semibold text-base text-white/80 border-2 border-white/30 bg-transparent cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
-        >
-          <Pencil size={18} />
-          ٹیموں کو ترمیم کریں / EDIT TEAMS
-        </button>
-
-        <button
-          type="button"
-          data-ocid="home.tournament.secondary_button"
-          onClick={onTournament}
-          className="w-full max-w-sm h-14 rounded-xl font-body font-semibold text-base text-primary border-2 border-primary/60 bg-transparent cursor-pointer hover:bg-primary/10 transition-colors flex items-center justify-center gap-2"
-        >
-          <Trophy size={18} />
-          TOURNAMENT / ٹورنامنٹ
-        </button>
-
+        {/* Past Matches Toggle */}
         <button
           type="button"
           data-ocid="home.past_matches.toggle"
           onClick={() => setShowHistory(!showHistory)}
-          className="w-full max-w-sm h-14 rounded-xl font-body font-semibold text-base text-white/80 border border-white/20 bg-transparent cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
+          className="w-full max-w-sm h-12 rounded-xl font-body font-semibold text-sm text-white/60 border border-white/15 bg-transparent cursor-pointer hover:bg-white/5 transition-colors flex items-center justify-center gap-2"
         >
-          <Trophy size={18} />
+          <History size={16} />
           PAST MATCHES
           {showHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
@@ -1040,53 +1254,105 @@ function HomeView({
         </AnimatePresence>
       </main>
 
-      <Footer dev />
-
-      {/* Password Dialog */}
-      {pwdDialog.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
-          <div className="w-full max-w-xs rounded-2xl border border-primary/40 bg-zinc-950 p-6 flex flex-col gap-4">
-            <h2 className="text-primary font-display font-bold text-lg text-center">
-              🔒 Admin Password Required
-            </h2>
-            <p className="text-white/60 text-sm text-center">
-              This section is for Admin only
-            </p>
-            <input
-              type="password"
-              value={pwdInput}
-              onChange={(e) => {
-                setPwdInput(e.target.value);
-                setPwdError(false);
-              }}
-              onKeyDown={(e) => e.key === "Enter" && submitPassword()}
-              placeholder="Enter Password"
-              className="w-full rounded-lg border border-white/20 bg-black text-white px-4 py-3 text-base outline-none focus:border-primary text-center tracking-widest"
-            />
-            {_pwdError && (
-              <p className="text-red-400 text-sm text-center">
-                Wrong password -- please try again
-              </p>
-            )}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setPwdDialog({ open: false, target: null })}
-                className="flex-1 h-11 rounded-xl border border-white/20 text-white/60 font-semibold text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={submitPassword}
-                className="flex-1 h-11 rounded-xl bg-primary text-black font-bold text-sm"
-              >
-                Enter
-              </button>
-            </div>
-          </div>
+      {/* Slim Fixed Footer */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+          background: "#0D0D0D",
+          borderTop: "1px solid rgba(250,255,0,0.2)",
+          padding: "10px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+        }}
+      >
+        <span
+          style={{
+            color: "rgba(255,255,255,0.4)",
+            fontSize: "11px",
+            letterSpacing: "0.1em",
+          }}
+        >
+          SHARE &amp; DOWNLOAD
+        </span>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            type="button"
+            data-ocid="home.copy_link.button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(window.location.href);
+                setLinkCopied(true);
+                setTimeout(() => setLinkCopied(false), 2000);
+              } catch {
+                /* ignore */
+              }
+            }}
+            style={{
+              background: linkCopied ? "rgba(250,255,0,0.15)" : "transparent",
+              border: "1.5px solid rgba(250,255,0,0.4)",
+              borderRadius: "20px",
+              padding: "6px 14px",
+              color: linkCopied ? "#FAFF00" : "rgba(255,255,255,0.75)",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              letterSpacing: "0.05em",
+            }}
+          >
+            {linkCopied ? "✓ COPIED!" : "📋 COPY LINK"}
+          </button>
+          <button
+            type="button"
+            data-ocid="home.share.button"
+            onClick={async () => {
+              try {
+                if (navigator.share) {
+                  await navigator.share({
+                    title: "CCB SCORING PRO",
+                    text: "Download CCB Live Cricket Scoring App 🏏",
+                    url: window.location.href,
+                  });
+                } else {
+                  window.open(
+                    `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\n${window.location.href}`)}`,
+                    "_blank",
+                  );
+                }
+              } catch {
+                window.open(
+                  `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\n${window.location.href}`)}`,
+                  "_blank",
+                );
+              }
+            }}
+            style={{
+              background: "rgba(250,255,0,0.12)",
+              border: "1.5px solid rgba(250,255,0,0.4)",
+              borderRadius: "20px",
+              padding: "6px 14px",
+              color: "#FAFF00",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              letterSpacing: "0.05em",
+            }}
+          >
+            <Share2 size={12} />
+            SHARE
+          </button>
         </div>
-      )}
+      </div>
+
+      <Footer dev />
     </Page>
   );
 }
@@ -1110,6 +1376,9 @@ function EditTeamsDialog({
 }: EditTeamsDialogProps) {
   const [draft, setDraft] = useState<Team[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [savePwdInput, setSavePwdInput] = useState("");
+  const [savePwdDialog, setSavePwdDialog] = useState(false);
+  const [savePwdError, setSavePwdError] = useState(false);
 
   // Sync draft with teams when dialog opens
   useEffect(() => {
@@ -1159,132 +1428,192 @@ function EditTeamsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent
-        className="max-w-lg w-full max-h-[85vh] flex flex-col p-0 border border-yellow-400/40"
-        style={{ background: "#000", color: "#fff" }}
-      >
-        <DialogHeader className="px-5 pt-5 pb-3 border-b border-yellow-400/20 shrink-0">
-          <DialogTitle className="text-yellow-400 font-bold text-lg tracking-wide flex items-center gap-2">
-            <Pencil size={18} />
-            ٹیموں کو ترمیم کریں / Edit Teams
-          </DialogTitle>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+        <DialogContent
+          className="max-w-lg w-full max-h-[85vh] flex flex-col p-0 border border-yellow-400/40"
+          style={{ background: "#000", color: "#fff" }}
+        >
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-yellow-400/20 shrink-0">
+            <DialogTitle className="text-yellow-400 font-bold text-lg tracking-wide flex items-center gap-2">
+              <Pencil size={18} />
+              Edit Teams
+            </DialogTitle>
+          </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-          {draft.map((team, idx) => (
-            <div
-              key={team.id}
-              data-ocid={`edit_teams.item.${idx + 1}`}
-              className="border border-yellow-400/20 rounded-xl overflow-hidden"
-            >
-              {/* Team header with name input */}
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-white/5">
-                <div className="w-7 h-7 rounded-full bg-yellow-400/20 border border-yellow-400/40 flex items-center justify-center shrink-0">
-                  <Shield size={12} className="text-yellow-400" />
-                </div>
-                <input
-                  data-ocid={`edit_teams.team_name.input.${idx + 1}`}
-                  value={team.name}
-                  onChange={(e) => updateTeamName(team.id, e.target.value)}
-                  className="flex-1 bg-transparent text-white font-semibold text-sm outline-none border-b border-yellow-400/30 focus:border-yellow-400 pb-0.5 min-w-0"
-                  placeholder="Team name..."
-                />
-                <button
-                  type="button"
-                  data-ocid={`edit_teams.expand.toggle.${idx + 1}`}
-                  onClick={() =>
-                    setExpandedId(expandedId === team.id ? null : team.id)
-                  }
-                  className="text-yellow-400/70 hover:text-yellow-400 p-1 rounded transition-colors cursor-pointer border-0 bg-transparent shrink-0"
-                >
-                  {expandedId === team.id ? (
-                    <ChevronUp size={15} />
-                  ) : (
-                    <ChevronDown size={15} />
-                  )}
-                </button>
-              </div>
-
-              {/* Players list */}
-              <AnimatePresence>
-                {expandedId === team.id && (
-                  <motion.div
-                    initial={{ height: 0 }}
-                    animate={{ height: "auto" }}
-                    exit={{ height: 0 }}
-                    className="overflow-hidden"
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {draft.map((team, idx) => (
+              <div
+                key={team.id}
+                data-ocid={`edit_teams.item.${idx + 1}`}
+                className="border border-yellow-400/20 rounded-xl overflow-hidden"
+              >
+                {/* Team header with name input */}
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-white/5">
+                  <div className="w-7 h-7 rounded-full bg-yellow-400/20 border border-yellow-400/40 flex items-center justify-center shrink-0">
+                    <Shield size={12} className="text-yellow-400" />
+                  </div>
+                  <input
+                    data-ocid={`edit_teams.team_name.input.${idx + 1}`}
+                    value={team.name}
+                    onChange={(e) => updateTeamName(team.id, e.target.value)}
+                    className="flex-1 bg-transparent text-white font-semibold text-sm outline-none border-b border-yellow-400/30 focus:border-yellow-400 pb-0.5 min-w-0"
+                    placeholder="Team name..."
+                  />
+                  <button
+                    type="button"
+                    data-ocid={`edit_teams.expand.toggle.${idx + 1}`}
+                    onClick={() =>
+                      setExpandedId(expandedId === team.id ? null : team.id)
+                    }
+                    className="text-yellow-400/70 hover:text-yellow-400 p-1 rounded transition-colors cursor-pointer border-0 bg-transparent shrink-0"
                   >
-                    <div className="px-3 py-2 space-y-1.5 border-t border-yellow-400/10 bg-black">
-                      {team.players.map((player, pi) => (
-                        <div
-                          key={player.id}
-                          className="flex items-center gap-2"
-                        >
-                          <span className="text-yellow-400/50 text-xs w-5 shrink-0">
-                            {pi + 1}.
-                          </span>
-                          <input
-                            data-ocid={`edit_teams.player_name.input.${pi + 1}`}
-                            value={player.name}
-                            onChange={(e) =>
-                              updatePlayerName(
-                                team.id,
-                                player.id,
-                                e.target.value,
-                              )
-                            }
-                            className="flex-1 bg-white/5 text-white text-xs outline-none border border-white/10 focus:border-yellow-400/50 rounded px-2 py-1 min-w-0"
-                            placeholder="Player name..."
-                          />
-                          <button
-                            type="button"
-                            data-ocid={`edit_teams.player.delete_button.${pi + 1}`}
-                            onClick={() => removePlayer(team.id, player.id)}
-                            className="text-red-400/60 hover:text-red-400 p-1 rounded transition-colors cursor-pointer border-0 bg-transparent shrink-0"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        data-ocid={`edit_teams.add_player.button.${idx + 1}`}
-                        onClick={() => addPlayer(team.id)}
-                        className="flex items-center gap-1.5 text-yellow-400/70 hover:text-yellow-400 text-xs font-semibold mt-2 cursor-pointer border-0 bg-transparent py-1 transition-colors"
-                      >
-                        <Plus size={13} />
-                        Add Player / کھلاڑی شامل کریں
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          ))}
-        </div>
+                    {expandedId === team.id ? (
+                      <ChevronUp size={15} />
+                    ) : (
+                      <ChevronDown size={15} />
+                    )}
+                  </button>
+                </div>
 
-        <DialogFooter className="px-5 py-4 border-t border-yellow-400/20 shrink-0 flex gap-3">
-          <button
-            type="button"
-            data-ocid="edit_teams.cancel_button"
-            onClick={onClose}
-            className="flex-1 h-11 rounded-xl border border-white/20 text-white/70 font-semibold text-sm hover:bg-white/5 cursor-pointer bg-transparent transition-colors"
-          >
-            منسوخ / Cancel
-          </button>
-          <button
-            type="button"
-            data-ocid="edit_teams.save_button"
-            onClick={() => onSave(draft)}
-            className="flex-1 h-11 rounded-xl bg-yellow-400 text-black font-bold text-sm hover:bg-yellow-300 cursor-pointer border-0 tracking-wide transition-colors"
-            style={{ boxShadow: "0 0 16px rgba(250,255,0,0.3)" }}
-          >
-            محفوظ کریں / Save
-          </button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+                {/* Players list */}
+                <AnimatePresence>
+                  {expandedId === team.id && (
+                    <motion.div
+                      initial={{ height: 0 }}
+                      animate={{ height: "auto" }}
+                      exit={{ height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-3 py-2 space-y-1.5 border-t border-yellow-400/10 bg-black">
+                        {team.players.map((player, pi) => (
+                          <div
+                            key={player.id}
+                            className="flex items-center gap-2"
+                          >
+                            <span className="text-yellow-400/50 text-xs w-5 shrink-0">
+                              {pi + 1}.
+                            </span>
+                            <input
+                              data-ocid={`edit_teams.player_name.input.${pi + 1}`}
+                              value={player.name}
+                              onChange={(e) =>
+                                updatePlayerName(
+                                  team.id,
+                                  player.id,
+                                  e.target.value,
+                                )
+                              }
+                              className="flex-1 bg-white/5 text-white text-xs outline-none border border-white/10 focus:border-yellow-400/50 rounded px-2 py-1 min-w-0"
+                              placeholder="Player name..."
+                            />
+                            <button
+                              type="button"
+                              data-ocid={`edit_teams.player.delete_button.${pi + 1}`}
+                              onClick={() => removePlayer(team.id, player.id)}
+                              className="text-red-400/60 hover:text-red-400 p-1 rounded transition-colors cursor-pointer border-0 bg-transparent shrink-0"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          data-ocid={`edit_teams.add_player.button.${idx + 1}`}
+                          onClick={() => addPlayer(team.id)}
+                          className="flex items-center gap-1.5 text-yellow-400/70 hover:text-yellow-400 text-xs font-semibold mt-2 cursor-pointer border-0 bg-transparent py-1 transition-colors"
+                        >
+                          <Plus size={13} />
+                          Add Player
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter className="px-5 py-4 border-t border-yellow-400/20 shrink-0 flex gap-3">
+            <button
+              type="button"
+              data-ocid="edit_teams.cancel_button"
+              onClick={onClose}
+              className="flex-1 h-11 rounded-xl border border-white/20 text-white/70 font-semibold text-sm hover:bg-white/5 cursor-pointer bg-transparent transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-ocid="edit_teams.save_button"
+              onClick={() => {
+                setSavePwdInput("");
+                setSavePwdError(false);
+                setSavePwdDialog(true);
+              }}
+              className="flex-1 h-11 rounded-xl bg-yellow-400 text-black font-bold text-sm hover:bg-yellow-300 cursor-pointer border-0 tracking-wide transition-colors"
+              style={{ boxShadow: "0 0 16px rgba(250,255,0,0.3)" }}
+            >
+              Save
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {savePwdDialog && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 px-4">
+          <div className="w-full max-w-xs rounded-2xl border border-primary/40 bg-zinc-950 p-6 flex flex-col gap-4">
+            <h2 className="text-primary font-display font-bold text-lg text-center">
+              🔒 Admin Password
+            </h2>
+            <p className="text-white/60 text-sm text-center">
+              Enter password to save changes
+            </p>
+            <input
+              type="password"
+              value={savePwdInput}
+              onChange={(e) => {
+                setSavePwdInput(e.target.value);
+                setSavePwdError(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  if (savePwdInput === "Shahzad@99") {
+                    onSave(draft);
+                    setSavePwdDialog(false);
+                  } else setSavePwdError(true);
+                }
+              }}
+              placeholder="Enter Password"
+              className="w-full rounded-lg border border-white/20 bg-black text-white px-4 py-3 text-base outline-none focus:border-primary text-center tracking-widest"
+            />
+            {savePwdError && (
+              <p className="text-red-400 text-sm text-center">Wrong password</p>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setSavePwdDialog(false)}
+                className="flex-1 h-11 rounded-xl border border-white/20 text-white/60 font-semibold text-sm cursor-pointer bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (savePwdInput === "Shahzad@99") {
+                    onSave(draft);
+                    setSavePwdDialog(false);
+                  } else setSavePwdError(true);
+                }}
+                className="flex-1 h-11 rounded-xl bg-primary text-black font-bold text-sm cursor-pointer border-0"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1558,6 +1887,7 @@ interface ScoringViewProps {
   target?: number; // innings 2 only
   onUpdate: (newInnings: InningsState) => void;
   onInningsEnd: (finalInnings: InningsState) => void;
+  onHome: () => void;
 }
 
 function ScoringView({
@@ -1567,9 +1897,39 @@ function ScoringView({
   target,
   onUpdate,
   onInningsEnd,
+  onHome,
 }: ScoringViewProps) {
   const [undoStack, setUndoStack] = useState<InningsState[]>([]);
   const [bowlerName, setBowlerName] = useState(innings.bowlingTeam.name);
+
+  // Write live match data to localStorage for LiveMatchView
+  useEffect(() => {
+    const striker = innings.activeBatsmen.find((b) => b.isStriker);
+    const nonStriker = innings.activeBatsmen.find((b) => !b.isStriker);
+    const currentBowler = innings.bowlers[innings.bowlers.length - 1];
+    const data = {
+      teamA: innings.battingTeam.name,
+      teamB: innings.bowlingTeam.name,
+      totalRuns: innings.totalRuns,
+      wickets: innings.wickets,
+      balls: innings.balls,
+      totalOvers,
+      strikerName: striker?.player.name ?? "",
+      strikerRuns: striker?.runs ?? 0,
+      strikerBalls: striker?.balls ?? 0,
+      nonStrikerName: nonStriker?.player.name ?? "",
+      nonStrikerRuns: nonStriker?.runs ?? 0,
+      bowlerName: currentBowler?.name ?? bowlerName,
+      target,
+      isComplete: innings.isComplete,
+      inningsNum,
+      timestamp: Date.now(),
+    };
+    try {
+      localStorage.setItem("ccb_live_match", JSON.stringify(data));
+    } catch {}
+  }, [innings, bowlerName, target, inningsNum, totalOvers]);
+
   const [bowlerDlg, setBowlerDlg] = useState(false);
   const [bowlerInput, setBowlerInput] = useState("");
   const [wicketDlg, setWicketDlg] = useState<WicketDialog>({
@@ -1595,7 +1955,7 @@ function ScoringView({
 
   function handleRun(runs: number) {
     pushUndo(innings);
-    const next = applyLegal(innings, runs, totalOvers);
+    const next = applyLegal(innings, runs, totalOvers, bowlerName);
 
     // 2nd innings target check — auto stop
     if (inningsNum === 2 && target !== undefined && next.totalRuns >= target) {
@@ -1617,7 +1977,7 @@ function ScoringView({
 
   function handleExtra(extraRuns: number) {
     pushUndo(innings);
-    const next = applyExtra(innings, extraRuns);
+    const next = applyExtra(innings, extraRuns, bowlerName);
     onUpdate(next);
   }
 
@@ -1631,7 +1991,7 @@ function ScoringView({
 
     if (wouldBeLastWicket) {
       pushUndo(innings);
-      const next = applyWicket(innings, wt, null, totalOvers);
+      const next = applyWicket(innings, wt, null, totalOvers, bowlerName);
       setWicketDlg({ open: false, step: "type" });
       onInningsEnd(next);
     } else {
@@ -1642,7 +2002,13 @@ function ScoringView({
   function handleNewBatsman(player: Player) {
     if (!wicketDlg.wicketType) return;
     pushUndo(innings);
-    const next = applyWicket(innings, wicketDlg.wicketType, player, totalOvers);
+    const next = applyWicket(
+      innings,
+      wicketDlg.wicketType,
+      player,
+      totalOvers,
+      bowlerName,
+    );
     setWicketDlg({ open: false, step: "type" });
     if (inningsNum === 2 && target !== undefined && next.totalRuns >= target) {
       onInningsEnd(next);
@@ -1670,6 +2036,17 @@ function ScoringView({
     <Page>
       {/* AppBar — Flutter-style black header with yellow title */}
       <header className="bg-black px-4 py-3 flex items-center justify-center border-b border-primary/20 relative">
+        <div className="absolute left-3 top-1/2 -translate-y-1/2">
+          <button
+            data-ocid="scoring.home.button"
+            type="button"
+            onClick={onHome}
+            className="text-yellow-400 hover:text-yellow-300 transition-colors flex items-center gap-1"
+            title="Home"
+          >
+            <Home size={18} />
+          </button>
+        </div>
         <h1 className="font-display font-bold text-primary text-lg tracking-widest uppercase text-center">
           CHOLISTAN CRICKET BOARD
         </h1>
@@ -1759,9 +2136,7 @@ function ScoringView({
       {/* Batsman & Bowler Row — inline editable, Flutter-style */}
       <div className="bg-black px-4 py-3 flex gap-4">
         <div className="flex-1">
-          <p className="text-white/60 font-body text-xs mb-1">
-            Batsman / بلے باز
-          </p>
+          <p className="text-white/60 font-body text-xs mb-1">Batsman</p>
           <input
             type="text"
             data-ocid="scoring.batsman.input"
@@ -1786,20 +2161,20 @@ function ScoringView({
           )}
         </div>
         <div className="flex-1">
-          <p className="text-white/60 font-body text-xs mb-1">
-            Bowler / گیند باز
-          </p>
-          <p
+          <p className="text-white/60 font-body text-xs mb-1">Bowler</p>
+          <input
+            type="text"
             data-ocid="scoring.bowler.input"
-            className="font-body font-semibold text-base pb-1 border-b border-white/20"
+            value={bowlerName}
+            onChange={(e) => setBowlerName(e.target.value)}
+            className="w-full bg-transparent border-none border-b border-orange-400/60 outline-none font-body font-semibold text-base pb-1 focus:ring-0 p-0 focus:border-b focus:border-orange-400"
             style={{ color: "#FF8C00" }}
-          >
-            {bowlerName}
-          </p>
+            placeholder="Bowler Name"
+          />
           {nonStriker && (
             <div className="mt-1">
               <p className="text-white/40 font-body text-[9px] uppercase tracking-wide mb-0.5">
-                Non-striker / نان اسٹرائیکر
+                Non-striker
               </p>
               <input
                 type="text"
@@ -1836,7 +2211,7 @@ function ScoringView({
               🏆 TARGET REACHED!
             </p>
             <p className="text-white/80 font-body text-sm">
-              Match Won! — تارگٹ حاصل کر لیا
+              Match Won! — Target Reached!
             </p>
           </div>
         )}
@@ -1919,7 +2294,7 @@ function ScoringView({
           {/* LEGAL — full width bottom */}
           <ScoreBtn
             label="LEGAL"
-            sub="قانونی گیند"
+            sub="Legal Ball"
             colorClass="bg-btn-legal"
             onClick={() => handleRun(0)}
             ocid="scoring.legal.button"
@@ -1962,19 +2337,42 @@ function ScoringView({
             </DialogTitle>
           </DialogHeader>
           <p className="text-white text-sm mb-2">Enter Next Bowler Name:</p>
-          <input
-            className="w-full bg-gray-900 text-white border border-yellow-400/50 rounded px-3 py-2 text-base outline-none"
-            value={bowlerInput}
-            onChange={(e) => setBowlerInput(e.target.value)}
-            placeholder="Bowler name..."
-            data-ocid="scoring.bowler_name.input"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && bowlerInput.trim()) {
-                setBowlerName(bowlerInput.trim());
-                setBowlerDlg(false);
-              }
-            }}
-          />
+          <div className="flex gap-2 mb-1">
+            <input
+              className="flex-1 bg-gray-900 text-white border border-yellow-400/50 rounded px-3 py-2 text-base outline-none"
+              value={bowlerInput}
+              onChange={(e) => setBowlerInput(e.target.value)}
+              placeholder="Bowler name..."
+              data-ocid="scoring.bowler_name.input"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && bowlerInput.trim()) {
+                  setBowlerName(bowlerInput.trim());
+                  setBowlerDlg(false);
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                // Auto: pick next unused player from bowling team, or generate Bowler N
+                const bowlingPlayers = innings.bowlingTeam.players || [];
+                const usedNames = innings.bowlers.map((b) => b.name);
+                const unused = bowlingPlayers.filter(
+                  (p: { name: string }) => !usedNames.includes(p.name),
+                );
+                let autoName: string;
+                if (unused.length > 0) {
+                  autoName = unused[0].name;
+                } else {
+                  autoName = `Bowler ${innings.bowlers.length + 1}`;
+                }
+                setBowlerInput(autoName);
+              }}
+              className="bg-green-500 text-black font-bold px-4 py-2 rounded-xl hover:bg-green-400 cursor-pointer border-0 text-sm whitespace-nowrap"
+            >
+              ⚡ Auto
+            </button>
+          </div>
           <DialogFooter>
             <button
               type="button"
@@ -1988,7 +2386,7 @@ function ScoringView({
               disabled={!bowlerInput.trim()}
               className="w-full bg-yellow-400 text-black font-bold px-6 py-3 rounded-xl hover:bg-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer border-0"
             >
-              شروع کریں / Start Over
+              Start Over
             </button>
           </DialogFooter>
         </DialogContent>
@@ -2152,6 +2550,50 @@ interface ResultViewProps {
 
 function ResultView({ match, onNewMatch }: ResultViewProps) {
   const { innings1, innings2, resultText } = match;
+  const [savingPng, setSavingPng] = useState(false);
+  const [savingPdf, setSavingPdf] = useState(false);
+  const [sharing, setSharing] = useState(false);
+
+  // Auto-create MatchInfoCard when result screen loads
+  useEffect(() => {
+    try {
+      const key = "ccb_match_info_cards";
+      const existing: MatchInfoCard[] = JSON.parse(
+        localStorage.getItem(key) ?? "[]",
+      );
+      const alreadyExists = existing.some(
+        (c) =>
+          c.matchTitle === `${match.teamA.name} vs ${match.teamB.name}` &&
+          c.date === match.date,
+      );
+      if (!alreadyExists) {
+        // Compute MoM
+        const allBatsmen: { name: string; runs: number }[] = [];
+        for (const inn of [innings1, innings2].filter(
+          Boolean,
+        ) as InningsState[]) {
+          for (const b of [...inn.activeBatsmen, ...inn.outBatsmen]) {
+            const ex = allBatsmen.find((x) => x.name === b.player.name);
+            if (ex) ex.runs += b.runs;
+            else allBatsmen.push({ name: b.player.name, runs: b.runs });
+          }
+        }
+        const motm = allBatsmen.sort((a, b) => b.runs - a.runs)[0];
+        const newCard: MatchInfoCard = {
+          id: `auto_${match.id}`,
+          matchTitle: `${match.teamA.name} vs ${match.teamB.name}`,
+          tournamentName: "",
+          coverPhoto: null,
+          matchSummary: resultText ?? "",
+          topPerformer: motm ? `${motm.name} - ${motm.runs} Runs` : "",
+          location: "",
+          status: "Completed",
+          date: match.date,
+        };
+        localStorage.setItem(key, JSON.stringify([newCard, ...existing]));
+      }
+    } catch {}
+  }, [match, innings1, innings2, resultText]);
 
   function renderBatsmen(inn: InningsState) {
     const all = [...inn.outBatsmen, ...inn.activeBatsmen];
@@ -2172,6 +2614,70 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
         </td>
       </tr>
     ));
+  }
+
+  function renderBowlers(inn: InningsState) {
+    if (!inn.bowlers || inn.bowlers.length === 0) return null;
+    return inn.bowlers.map((b) => (
+      <tr key={b.name} className="border-b border-white/10">
+        <td className="py-1.5 pr-3 text-white font-body text-xs">{b.name}</td>
+        <td className="py-1.5 px-2 text-white/60 font-body text-xs text-right">
+          {b.overs}.{b.balls % 6}
+        </td>
+        <td className="py-1.5 px-2 text-primary font-body font-bold text-xs text-right">
+          {b.runs}
+        </td>
+        <td className="py-1.5 pl-2 text-white/50 font-body text-xs text-right">
+          {b.wickets}
+        </td>
+      </tr>
+    ));
+  }
+
+  function handleShare() {
+    // Build MoM
+    const allBatsmen: { name: string; runs: number }[] = [];
+    for (const inn of [innings1, innings2].filter(Boolean) as InningsState[]) {
+      for (const b of [...inn.activeBatsmen, ...inn.outBatsmen]) {
+        const ex = allBatsmen.find((x) => x.name === b.player.name);
+        if (ex) ex.runs += b.runs;
+        else allBatsmen.push({ name: b.player.name, runs: b.runs });
+      }
+    }
+    const motm = allBatsmen.sort((a, b) => b.runs - a.runs)[0];
+
+    function topBatsmen(inn: InningsState) {
+      return [...inn.outBatsmen, ...inn.activeBatsmen]
+        .sort((a, b) => b.runs - a.runs)
+        .slice(0, 3)
+        .map((b) => `  ${b.player.name}: ${b.runs} runs (${b.balls} balls)`)
+        .join("\n");
+    }
+
+    let text = "🏏 CCB SCORING PRO - Match Report\n";
+    text += `${match.teamA.name} vs ${match.teamB.name} | ${match.date}\n`;
+    text += `Result: ${resultText ?? ""}\n\n`;
+    text += `INNINGS 1 - ${innings1.battingTeam.name}:\n`;
+    text += `${topBatsmen(innings1)}\n`;
+    text += `Total: ${innings1.totalRuns}/${innings1.wickets} in ${formatOvers(innings1.balls)} overs\n`;
+    if (innings2) {
+      text += `\nINNINGS 2 - ${innings2.battingTeam.name}:\n`;
+      text += `${topBatsmen(innings2)}\n`;
+      text += `Total: ${innings2.totalRuns}/${innings2.wickets} in ${formatOvers(innings2.balls)} overs\n`;
+    }
+    if (motm && motm.runs > 0) {
+      text += `\n🏆 Man of the Match: ${motm.name} - ${motm.runs} runs\n`;
+    }
+    text += "\nScored with CCB Scoring Pro";
+
+    const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    if (navigator.share) {
+      navigator.share({ title: "CCB Match Report", text }).catch(() => {
+        window.open(waUrl, "_blank");
+      });
+    } else {
+      window.open(waUrl, "_blank");
+    }
   }
 
   return (
@@ -2270,6 +2776,32 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
               </thead>
               <tbody>{renderBatsmen(innings1)}</tbody>
             </table>
+            {innings1.bowlers && innings1.bowlers.length > 0 && (
+              <>
+                <p className="text-white/40 font-body text-[10px] uppercase mt-3 mb-1">
+                  Bowling
+                </p>
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-white/20">
+                      <th className="text-left text-white/40 font-body text-[10px] uppercase pb-1">
+                        Bowler
+                      </th>
+                      <th className="text-right text-white/40 font-body text-[10px] uppercase pb-1">
+                        O
+                      </th>
+                      <th className="text-right text-white/40 font-body text-[10px] uppercase pb-1">
+                        R
+                      </th>
+                      <th className="text-right text-white/40 font-body text-[10px] uppercase pb-1">
+                        W
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>{renderBowlers(innings1)}</tbody>
+                </table>
+              </>
+            )}
           </div>
 
           {/* Innings 2 */}
@@ -2301,21 +2833,103 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
                 </thead>
                 <tbody>{renderBatsmen(innings2)}</tbody>
               </table>
+              {innings2.bowlers && innings2.bowlers.length > 0 && (
+                <>
+                  <p className="text-white/40 font-body text-[10px] uppercase mt-3 mb-1">
+                    Bowling
+                  </p>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-white/20">
+                        <th className="text-left text-white/40 font-body text-[10px] uppercase pb-1">
+                          Bowler
+                        </th>
+                        <th className="text-right text-white/40 font-body text-[10px] uppercase pb-1">
+                          O
+                        </th>
+                        <th className="text-right text-white/40 font-body text-[10px] uppercase pb-1">
+                          R
+                        </th>
+                        <th className="text-right text-white/40 font-body text-[10px] uppercase pb-1">
+                          W
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>{renderBowlers(innings2)}</tbody>
+                  </table>
+                </>
+              )}
             </div>
           )}
         </div>
 
         {/* Action Buttons */}
         <div className="mt-6 space-y-3">
-          <button
-            type="button"
-            data-ocid="result.print.button"
-            onClick={() => window.print()}
-            className="w-full h-14 rounded-xl border border-white/30 text-white font-body font-semibold flex items-center justify-center gap-2 hover:bg-white/5 cursor-pointer bg-transparent"
-          >
-            <Printer size={18} />
-            Print / Save PDF Scorecard
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              data-ocid="result.print.button"
+              disabled={savingPdf}
+              onClick={() =>
+                saveAsPdf(
+                  "scorecard-print",
+                  "match-report.pdf",
+                  () => setSavingPdf(true),
+                  () => setSavingPdf(false),
+                )
+              }
+              className="flex-1 h-14 rounded-xl border border-white/30 text-white font-body font-semibold flex items-center justify-center gap-2 hover:bg-white/5 cursor-pointer bg-transparent disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {savingPdf ? (
+                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Printer size={18} />
+              )}
+              {savingPdf ? "Saving..." : "Save PDF"}
+            </button>
+            <button
+              type="button"
+              data-ocid="result.save_png.button"
+              disabled={savingPng}
+              onClick={() =>
+                saveAsPng(
+                  "scorecard-print",
+                  "match-report.png",
+                  () => setSavingPng(true),
+                  () => setSavingPng(false),
+                )
+              }
+              className="flex-1 h-14 rounded-xl border border-primary/40 text-primary font-body font-semibold flex items-center justify-center gap-2 hover:bg-primary/10 cursor-pointer bg-transparent disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {savingPng ? (
+                <span className="inline-block w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Download size={18} />
+              )}
+              {savingPng ? "Saving..." : "Save PNG"}
+            </button>
+            <button
+              type="button"
+              data-ocid="result.share.button"
+              disabled={sharing}
+              onClick={async () => {
+                setSharing(true);
+                try {
+                  await handleShare();
+                } finally {
+                  setSharing(false);
+                }
+              }}
+              className="flex-1 h-14 rounded-xl border border-primary/50 text-primary font-body font-semibold flex items-center justify-center gap-2 hover:bg-primary/10 cursor-pointer bg-transparent disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {sharing ? (
+                <span className="inline-block w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Share2 size={18} />
+              )}
+              {sharing ? "Sharing..." : "WhatsApp"}
+            </button>
+          </div>
 
           <button
             type="button"
@@ -2615,6 +3229,41 @@ function TournamentView({
     setAddMatchDialog((prev) => ({ ...prev, open: false }));
   }
 
+  function generateScheduleForPool(poolId: string) {
+    const pool = tournament.pools.find((p) => p.id === poolId);
+    if (!pool || pool.teamIds.length < 2) return;
+    const teamCount = pool.teamIds.length;
+    const matchCount = (teamCount * (teamCount - 1)) / 2;
+    const confirmed = window.confirm(
+      `Generate round-robin schedule for Pool ${pool.name}?\n\n${teamCount} teams → ${matchCount} matches will be created.\nExisting unplayed matches for this pool will be removed.`,
+    );
+    if (!confirmed) return;
+    // Remove existing non-completed matches for this pool
+    const otherMatches = tournament.matches.filter((m) => {
+      const isPoolMatch =
+        pool.teamIds.includes(m.homeTeamId) &&
+        pool.teamIds.includes(m.awayTeamId);
+      return !isPoolMatch || m.status === "completed" || m.status === "tied";
+    });
+    // Generate round-robin pairs
+    const newMatches: PoolMatch[] = [];
+    const baseId = Date.now();
+    let matchIdx = 0;
+    for (let i = 0; i < pool.teamIds.length; i++) {
+      for (let j = i + 1; j < pool.teamIds.length; j++) {
+        newMatches.push({
+          id: (baseId + matchIdx).toString(),
+          homeTeamId: pool.teamIds[i],
+          awayTeamId: pool.teamIds[j],
+          totalOvers: 6,
+          status: "scheduled",
+        });
+        matchIdx++;
+      }
+    }
+    updateTournament({ matches: [...otherMatches, ...newMatches] });
+  }
+
   function confirmDeleteMatch(matchId: string) {
     const pwd = window.prompt("Admin Password Required:");
     if (pwd === "Shahzad@99") deleteMatch(matchId);
@@ -2884,6 +3533,11 @@ function TournamentView({
                       Maximum 5 teams per pool
                     </p>
                   )}
+                  {pool.teamIds.length >= 2 && (
+                    <p className="text-green-400/50 text-xs font-body text-center">
+                      ⚡ Go to Schedule tab to auto-generate matches
+                    </p>
+                  )}
                 </div>
               );
             })}
@@ -2923,21 +3577,38 @@ function TournamentView({
                       POOL {pool.name}
                     </h2>
                     {pool.teamIds.length >= 2 && adminUnlocked && (
-                      <button
-                        type="button"
-                        data-ocid="tournament.add_match.button"
-                        onClick={() => addMatch(pool.id)}
-                        className="h-8 px-3 rounded-lg border border-primary/50 text-primary text-xs font-body font-semibold cursor-pointer hover:bg-primary/10 transition-colors flex items-center gap-1"
-                      >
-                        <Plus size={12} />
-                        Add Match
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          data-ocid="tournament.auto_schedule.button"
+                          onClick={() => generateScheduleForPool(pool.id)}
+                          className="h-8 px-3 rounded-lg border border-green-400/60 text-green-400 text-xs font-body font-semibold cursor-pointer hover:bg-green-400/10 transition-colors flex items-center gap-1"
+                        >
+                          ⚡ Auto Schedule
+                        </button>
+                        <button
+                          type="button"
+                          data-ocid="tournament.add_match.button"
+                          onClick={() => addMatch(pool.id)}
+                          className="h-8 px-3 rounded-lg border border-primary/50 text-primary text-xs font-body font-semibold cursor-pointer hover:bg-primary/10 transition-colors flex items-center gap-1"
+                        >
+                          <Plus size={12} />
+                          Add Match
+                        </button>
+                      </div>
                     )}
                   </div>
                   {poolMatches.length === 0 && (
-                    <p className="text-white/30 text-xs font-body py-3 text-center border border-dashed border-white/10 rounded-lg">
-                      کوئی میچ نہیں
-                    </p>
+                    <div className="py-4 text-center border border-dashed border-white/10 rounded-lg space-y-1">
+                      <p className="text-white/30 text-xs font-body">
+                        No matches yet
+                      </p>
+                      {pool.teamIds.length >= 2 && adminUnlocked && (
+                        <p className="text-green-400/60 text-xs font-body">
+                          Click ⚡ Auto Schedule to generate round-robin matches
+                        </p>
+                      )}
+                    </div>
                   )}
                   <div className="space-y-3">
                     {poolMatches.map((m, idx) => {
@@ -2950,6 +3621,9 @@ function TournamentView({
                           className="border border-white/10 rounded-xl p-3 bg-white/3 space-y-2"
                         >
                           <div className="flex items-center gap-2">
+                            <span className="text-primary/80 text-xs font-body font-bold">
+                              Match #{idx + 1}
+                            </span>
                             <span
                               className={`text-xs font-body font-semibold px-2 py-0.5 rounded-full border ${
                                 m.status === "completed"
@@ -3687,9 +4361,698 @@ function TournamentView({
 // SPLASH SCREEN
 // ──────────────────────────────────────────────────────────────
 
+// ──────────────────────────────────────────────────────────────
+// MATCH INFO VIEW
+// ──────────────────────────────────────────────────────────────
+
+interface MatchInfoViewProps {
+  onBack: () => void;
+  cards: MatchInfoCard[];
+  onUpdate: (cards: MatchInfoCard[]) => void;
+  lastMotm?: string;
+}
+
+function MatchInfoView({
+  onBack,
+  cards,
+  onUpdate,
+  lastMotm,
+}: MatchInfoViewProps) {
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [pwdDialog, setPwdDialog] = useState(false);
+  const [pwdInput, setPwdInput] = useState("");
+  const [pwdError, setPwdError] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<Omit<MatchInfoCard, "id">>({
+    tournamentName: "",
+    matchTitle: "",
+    coverPhoto: null,
+    matchSummary: "",
+    topPerformer: lastMotm ?? "",
+    location: "",
+    status: "Upcoming",
+    date: new Date().toISOString().split("T")[0],
+  });
+
+  function openAddForm() {
+    setEditingId(null);
+    setForm({
+      tournamentName: "",
+      matchTitle: "",
+      coverPhoto: null,
+      matchSummary: "",
+      topPerformer: lastMotm ?? "",
+      location: "",
+      status: "Upcoming",
+      date: new Date().toISOString().split("T")[0],
+    });
+    setShowForm(true);
+  }
+
+  function openEditForm(card: MatchInfoCard) {
+    setEditingId(card.id);
+    setForm({
+      tournamentName: card.tournamentName,
+      matchTitle: card.matchTitle,
+      coverPhoto: card.coverPhoto,
+      matchSummary: card.matchSummary,
+      topPerformer: card.topPerformer,
+      location: card.location,
+      status: card.status,
+      date: card.date,
+    });
+    setShowForm(true);
+  }
+
+  function handleSave() {
+    if (editingId) {
+      onUpdate(
+        cards.map((c) => (c.id === editingId ? { id: editingId, ...form } : c)),
+      );
+    } else {
+      const newCard: MatchInfoCard = { id: Date.now().toString(), ...form };
+      const updated = [newCard, ...cards].slice(0, 10);
+      onUpdate(updated);
+    }
+    setShowForm(false);
+  }
+
+  function handleDelete(id: string) {
+    onUpdate(cards.filter((c) => c.id !== id));
+  }
+
+  function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setForm((prev) => ({ ...prev, coverPhoto: ev.target?.result as string }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function submitPassword() {
+    if (pwdInput === "Shahzad@99") {
+      setAdminUnlocked(true);
+      setPwdDialog(false);
+      setPwdError(false);
+    } else {
+      setPwdError(true);
+    }
+  }
+
+  const statusColor = (s: MatchInfoCard["status"]) => {
+    if (s === "Upcoming")
+      return {
+        bg: "rgba(250,255,0,0.15)",
+        text: "oklch(var(--p))",
+        border: "oklch(var(--p) / 0.5)",
+      };
+    if (s === "Live")
+      return {
+        bg: "rgba(0,220,100,0.15)",
+        text: "#00dc64",
+        border: "rgba(0,220,100,0.5)",
+      };
+    return {
+      bg: "rgba(255,255,255,0.08)",
+      text: "rgba(255,255,255,0.5)",
+      border: "rgba(255,255,255,0.2)",
+    };
+  };
+
+  return (
+    <Page>
+      <header className="pt-8 pb-4 px-4 flex items-center justify-between">
+        <button
+          type="button"
+          data-ocid="match_info.back.button"
+          onClick={onBack}
+          className="h-10 px-4 rounded-lg font-body font-semibold text-sm text-white/80 border border-white/20 bg-transparent cursor-pointer hover:bg-white/5 transition-colors"
+        >
+          ← BACK
+        </button>
+        <h2 className="font-display font-bold text-primary text-lg tracking-widest uppercase">
+          MATCH INFO
+        </h2>
+        <button
+          type="button"
+          data-ocid="match_info.admin_lock.toggle"
+          onClick={() => {
+            if (adminUnlocked) {
+              setAdminUnlocked(false);
+            } else {
+              setPwdInput("");
+              setPwdError(false);
+              setPwdDialog(true);
+            }
+          }}
+          className="h-10 px-4 rounded-lg font-body font-semibold text-sm cursor-pointer transition-colors border"
+          style={
+            adminUnlocked
+              ? {
+                  background: "oklch(var(--p) / 0.15)",
+                  color: "oklch(var(--p))",
+                  borderColor: "oklch(var(--p) / 0.5)",
+                }
+              : {
+                  background: "transparent",
+                  color: "rgba(255,255,255,0.5)",
+                  borderColor: "rgba(255,255,255,0.2)",
+                }
+          }
+        >
+          {adminUnlocked ? "🔓 ADMIN" : "🔒 ADMIN"}
+        </button>
+      </header>
+
+      <main className="flex-1 px-4 pb-8 space-y-4">
+        {adminUnlocked && !showForm && (
+          <button
+            type="button"
+            data-ocid="match_info.add.primary_button"
+            onClick={openAddForm}
+            className="w-full h-12 rounded-xl font-display font-bold text-sm tracking-wider text-black bg-primary cursor-pointer"
+            style={{ boxShadow: "0 0 20px rgba(250,255,0,0.3)" }}
+          >
+            + ADD MATCH INFO CARD
+          </button>
+        )}
+
+        {showForm && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl p-4 space-y-3"
+            style={{
+              background: "#0a0a0a",
+              border: "1.5px solid oklch(var(--p) / 0.4)",
+            }}
+          >
+            <p className="font-display font-bold text-primary text-sm tracking-widest uppercase">
+              {editingId ? "EDIT MATCH INFO" : "NEW MATCH INFO CARD"}
+            </p>
+
+            <div className="space-y-2">
+              <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                Tournament Name
+              </p>
+              <input
+                data-ocid="match_info.tournament_name.input"
+                type="text"
+                placeholder="e.g. City Champions Trophy"
+                value={form.tournamentName}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, tournamentName: e.target.value }))
+                }
+                className="w-full h-11 rounded-lg px-3 font-body text-sm text-white bg-transparent border border-white/20 outline-none focus:border-primary/60"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                Match Title
+              </p>
+              <input
+                data-ocid="match_info.match_title.input"
+                type="text"
+                placeholder="e.g. Semi-Final: Lions vs Tigers"
+                value={form.matchTitle}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, matchTitle: e.target.value }))
+                }
+                className="w-full h-11 rounded-lg px-3 font-body text-sm text-white bg-transparent border border-white/20 outline-none focus:border-primary/60"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                Cover Photo
+              </p>
+              <label
+                data-ocid="match_info.cover_photo.upload_button"
+                className="flex items-center justify-center gap-2 w-full h-11 rounded-lg font-body text-sm cursor-pointer transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1.5px dashed rgba(255,255,255,0.2)",
+                  color: "rgba(255,255,255,0.5)",
+                }}
+              >
+                📷 {form.coverPhoto ? "CHANGE PHOTO" : "UPLOAD COVER PHOTO"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+              </label>
+              {form.coverPhoto && (
+                <img
+                  src={form.coverPhoto}
+                  alt="Cover"
+                  className="w-full rounded-lg object-cover"
+                  style={{ maxHeight: "160px" }}
+                />
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                Match Summary
+              </p>
+              <textarea
+                data-ocid="match_info.match_summary.textarea"
+                rows={3}
+                placeholder="Brief highlights, e.g. Ali's 50 led the way..."
+                value={form.matchSummary}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, matchSummary: e.target.value }))
+                }
+                className="w-full rounded-lg px-3 py-2 font-body text-sm text-white bg-transparent border border-white/20 outline-none focus:border-primary/60 resize-none"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                Top Performer
+              </p>
+              <input
+                data-ocid="match_info.top_performer.input"
+                type="text"
+                placeholder="Auto-filled from last match MOTM"
+                value={form.topPerformer}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, topPerformer: e.target.value }))
+                }
+                className="w-full h-11 rounded-lg px-3 font-body text-sm text-white bg-transparent border border-white/20 outline-none focus:border-primary/60"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                Location / Ground
+              </p>
+              <input
+                data-ocid="match_info.location.input"
+                type="text"
+                placeholder="Name of the cricket ground"
+                value={form.location}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, location: e.target.value }))
+                }
+                className="w-full h-11 rounded-lg px-3 font-body text-sm text-white bg-transparent border border-white/20 outline-none focus:border-primary/60"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                  Status
+                </p>
+                <select
+                  data-ocid="match_info.status.select"
+                  value={form.status}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      status: e.target.value as MatchInfoCard["status"],
+                    }))
+                  }
+                  className="w-full h-11 rounded-lg px-3 font-body text-sm text-white border border-white/20 outline-none cursor-pointer"
+                  style={{ background: "#0d0d0d" }}
+                >
+                  <option value="Upcoming">Upcoming</option>
+                  <option value="Live">Live</option>
+                  <option value="Completed">Completed</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-white/50 font-body text-xs uppercase tracking-wider">
+                  Date
+                </p>
+                <input
+                  data-ocid="match_info.date.input"
+                  type="date"
+                  value={form.date}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, date: e.target.value }))
+                  }
+                  className="w-full h-11 rounded-lg px-3 font-body text-sm text-white bg-transparent border border-white/20 outline-none focus:border-primary/60"
+                  style={{ colorScheme: "dark" }}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                data-ocid="match_info.save.submit_button"
+                onClick={handleSave}
+                className="flex-1 h-11 rounded-xl font-display font-bold text-sm text-black cursor-pointer"
+                style={{
+                  background: "oklch(var(--p))",
+                  boxShadow: "0 0 16px rgba(250,255,0,0.3)",
+                }}
+              >
+                SAVE CARD
+              </button>
+              <button
+                type="button"
+                data-ocid="match_info.cancel.cancel_button"
+                onClick={() => setShowForm(false)}
+                className="flex-1 h-11 rounded-xl font-body font-semibold text-sm text-white/70 cursor-pointer border border-white/20 bg-transparent"
+              >
+                CANCEL
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {cards.length === 0 && !showForm && (
+          <div
+            data-ocid="match_info.empty_state"
+            className="text-center py-16 text-white/30 font-body text-sm"
+          >
+            <p className="text-4xl mb-4">🏏</p>
+            <p className="uppercase tracking-widest">No match info cards yet</p>
+            {adminUnlocked && (
+              <p className="mt-2 text-xs">Tap "+ ADD MATCH INFO CARD" above</p>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {cards.map((card, i) => {
+            const sc = statusColor(card.status);
+            return (
+              <motion.div
+                key={card.id}
+                id={`match-card-${card.id}`}
+                data-ocid={`match_info.item.${i + 1}`}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="rounded-2xl overflow-hidden"
+                style={{
+                  background: "#0a0a0a",
+                  border: "1.5px solid rgba(255,255,255,0.1)",
+                }}
+              >
+                {card.coverPhoto && (
+                  <img
+                    src={card.coverPhoto}
+                    alt={card.matchTitle}
+                    className="w-full object-cover"
+                    style={{ maxHeight: "200px" }}
+                  />
+                )}
+                <div className="p-4 space-y-3">
+                  {/* Status + Date row */}
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span
+                      className="text-xs font-display font-bold tracking-widest px-3 py-1 rounded-full"
+                      style={{
+                        background: sc.bg,
+                        color: sc.text,
+                        border: `1px solid ${sc.border}`,
+                      }}
+                    >
+                      {card.status === "Live"
+                        ? "🔴 LIVE"
+                        : card.status.toUpperCase()}
+                    </span>
+                    {card.date && (
+                      <span className="text-xs font-body text-white/40">
+                        📅 {card.date}
+                      </span>
+                    )}
+                  </div>
+
+                  {card.tournamentName && (
+                    <p className="text-primary/70 font-display text-xs tracking-[0.2em] uppercase">
+                      {card.tournamentName}
+                    </p>
+                  )}
+
+                  <h3 className="font-display font-bold text-white text-lg leading-tight">
+                    {card.matchTitle || "Untitled Match"}
+                  </h3>
+
+                  {card.location && (
+                    <p className="text-white/50 font-body text-sm flex items-center gap-1">
+                      📍 {card.location}
+                    </p>
+                  )}
+
+                  {card.topPerformer && (
+                    <div
+                      className="flex items-center gap-2 rounded-lg px-3 py-2"
+                      style={{
+                        background: "rgba(250,255,0,0.06)",
+                        border: "1px solid rgba(250,255,0,0.15)",
+                      }}
+                    >
+                      <span className="text-base">🏆</span>
+                      <div>
+                        <p className="text-white/40 font-body text-[10px] uppercase tracking-widest">
+                          Top Performer
+                        </p>
+                        <p className="text-primary font-body font-semibold text-sm">
+                          {card.topPerformer}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {card.matchSummary && (
+                    <p className="text-white/60 font-body text-sm leading-relaxed border-t border-white/10 pt-3">
+                      {card.matchSummary}
+                    </p>
+                  )}
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      data-ocid="match_info.print.button"
+                      onClick={() =>
+                        saveAsPdf(`match-card-${card.id}`, "match-card.pdf")
+                      }
+                      className="flex-1 h-9 rounded-lg font-body font-semibold text-xs text-white/60 cursor-pointer border border-white/20 bg-transparent hover:bg-white/5 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <Printer size={13} /> PDF
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid="match_info.save_png.button"
+                      onClick={() =>
+                        saveAsPng(`match-card-${card.id}`, "match-card.png")
+                      }
+                      className="flex-1 h-9 rounded-lg font-body font-semibold text-xs text-primary/80 cursor-pointer border border-primary/30 bg-transparent hover:bg-primary/10 transition-colors flex items-center justify-center gap-1"
+                    >
+                      <Download size={13} /> PNG
+                    </button>
+                  </div>
+
+                  {adminUnlocked && (
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        data-ocid={`match_info.edit_button.${i + 1}`}
+                        onClick={() => openEditForm(card)}
+                        className="flex-1 h-9 rounded-lg font-body font-semibold text-xs text-primary cursor-pointer border border-primary/30 bg-transparent hover:bg-primary/10 transition-colors"
+                      >
+                        ✏️ EDIT
+                      </button>
+                      <button
+                        type="button"
+                        data-ocid={`match_info.delete_button.${i + 1}`}
+                        onClick={() => handleDelete(card.id)}
+                        className="flex-1 h-9 rounded-lg font-body font-semibold text-xs text-red-400 cursor-pointer border border-red-400/30 bg-transparent hover:bg-red-400/10 transition-colors"
+                      >
+                        🗑️ DELETE
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </main>
+
+      {/* Password Dialog */}
+      <Dialog
+        open={pwdDialog}
+        onOpenChange={(o) => {
+          if (!o) setPwdDialog(false);
+        }}
+      >
+        <DialogContent
+          className="max-w-sm"
+          style={{
+            background: "#0d0d0d",
+            border: "1.5px solid oklch(var(--p) / 0.4)",
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle className="font-display text-primary tracking-widest uppercase text-sm">
+              Admin Access
+            </DialogTitle>
+          </DialogHeader>
+          <input
+            data-ocid="match_info.admin_password.input"
+            type="password"
+            placeholder="Enter admin password"
+            value={pwdInput}
+            onChange={(e) => {
+              setPwdInput(e.target.value);
+              setPwdError(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitPassword();
+            }}
+            className="w-full h-11 rounded-lg px-3 font-body text-sm text-white bg-transparent border border-white/20 outline-none focus:border-primary/60"
+          />
+          {pwdError && (
+            <p
+              data-ocid="match_info.admin_password.error_state"
+              className="text-red-400 font-body text-xs"
+            >
+              Incorrect password
+            </p>
+          )}
+          <DialogFooter className="gap-2">
+            <button
+              type="button"
+              data-ocid="match_info.admin_password.cancel_button"
+              onClick={() => setPwdDialog(false)}
+              className="flex-1 h-10 rounded-lg font-body font-semibold text-sm text-white/60 cursor-pointer border border-white/20 bg-transparent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-ocid="match_info.admin_password.confirm_button"
+              onClick={submitPassword}
+              className="flex-1 h-10 rounded-lg font-display font-bold text-sm text-black cursor-pointer"
+              style={{ background: "oklch(var(--p))" }}
+            >
+              UNLOCK
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Page>
+  );
+}
+
+async function getHtml2Canvas() {
+  if (!(window as any).html2canvas) {
+    await new Promise<void>((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src =
+        "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error("html2canvas load failed"));
+      document.head.appendChild(s);
+    });
+  }
+  return (window as any).html2canvas as (
+    el: HTMLElement,
+    opts?: any,
+  ) => Promise<HTMLCanvasElement>;
+}
+
+async function saveAsPng(
+  elementId: string,
+  filename: string,
+  onStart?: () => void,
+  onEnd?: () => void,
+) {
+  onStart?.();
+  try {
+    const el = document.getElementById(elementId);
+    if (!el) {
+      alert("Element not found. Please scroll to the scorecard and try again.");
+      onEnd?.();
+      return;
+    }
+    const h2c = await getHtml2Canvas();
+    const canvas = await h2c(el, {
+      scale: 2,
+      backgroundColor: "#0a0e21",
+      useCORS: true,
+    });
+    const link = document.createElement("a");
+    link.download = `${filename}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    onEnd?.();
+  } catch (e) {
+    console.error("PNG save failed:", e);
+    alert("❌ Could not save PNG. Try taking a screenshot manually.");
+    onEnd?.();
+  }
+}
+
+async function saveAsPdf(
+  elementId: string,
+  filename: string,
+  onStart?: () => void,
+  onEnd?: () => void,
+) {
+  onStart?.();
+  try {
+    const el = document.getElementById(elementId);
+    if (!el) {
+      alert("Element not found. Please scroll to the scorecard and try again.");
+      onEnd?.();
+      return;
+    }
+    const h2c = await getHtml2Canvas();
+    const canvas = await h2c(el, {
+      scale: 2,
+      backgroundColor: "#0a0e21",
+      useCORS: true,
+    });
+    const imgData = canvas.toDataURL("image/png");
+    // Load jsPDF from CDN dynamically
+    if (!(window as any).jspdf) {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src =
+          "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error("jsPDF load failed"));
+        document.head.appendChild(s);
+      });
+    }
+    const { jsPDF: JSPDF } = (window as any).jspdf;
+    const pdf = new JSPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const imgW = pageW - 20;
+    const imgH = (canvas.height * imgW) / canvas.width;
+    const yOffset = imgH < pageH - 20 ? (pageH - imgH) / 2 : 10;
+    pdf.addImage(imgData, "PNG", 10, yOffset, imgW, Math.min(imgH, pageH - 20));
+    pdf.save(`${filename}.pdf`);
+    onEnd?.();
+  } catch (e) {
+    console.error("PDF save failed:", e);
+    alert("❌ Could not generate PDF.");
+    onEnd?.();
+  }
+}
+
 function SplashScreen({ onDone }: { onDone: () => void }) {
   useEffect(() => {
-    const t = setTimeout(onDone, 3000);
+    const t = setTimeout(onDone, 2000);
     return () => clearTimeout(t);
   }, [onDone]);
 
@@ -3702,7 +5065,7 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
       transition={{ duration: 0.4 }}
     >
       <img
-        src="/assets/uploads/1773769089361-1.png"
+        src="/assets/generated/logo-hb-cricket-transparent.dim_512x512.png"
         alt="CCB SCORING PRO"
         className="w-28 h-28 object-contain select-none"
         style={{ filter: "drop-shadow(0 0 20px #FACC15)" }}
@@ -3721,6 +5084,1379 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
   );
 }
 
+// ──────────────────────────────────────────────────────────────
+// FIXED SCHEDULE VIEW
+// ──────────────────────────────────────────────────────────────
+
+interface FixedScheduleViewProps {
+  teams: Team[];
+  onHome: () => void;
+}
+
+function FixedScheduleView({ teams, onHome }: FixedScheduleViewProps) {
+  const times = [
+    "8:30 PM",
+    "9:15 PM",
+    "10:00 PM",
+    "10:45 PM",
+    "11:30 PM",
+    "12:10 AM",
+    "12:50 AM",
+    "1:30 AM",
+    "2:10 AM",
+    "2:50 AM",
+  ];
+  const matchPairs = [
+    [0, 1],
+    [2, 3],
+    [4, 0],
+    [1, 2],
+    [3, 4],
+    [0, 2],
+    [1, 4],
+    [3, 0],
+    [2, 4],
+    [1, 3],
+  ] as const;
+  const teamName = (i: number) => teams[i]?.name ?? `Team ${i + 1}`;
+
+  return (
+    <motion.div
+      key="fixed-schedule"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="min-h-screen flex flex-col"
+      style={{
+        background: "linear-gradient(180deg, #0a0a0a 0%, #0d1f0d 100%)",
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+        <button
+          type="button"
+          onClick={onHome}
+          className="flex items-center gap-2 text-yellow-300 font-bold"
+        >
+          <Home className="w-5 h-5" /> HOME
+        </button>
+        <span className="text-white font-bold text-lg tracking-wide">
+          FIXED SCHEDULE
+        </span>
+        <div className="w-20" />
+      </div>
+
+      {/* Schedule List */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        <div className="text-center mb-4">
+          <p className="text-yellow-300 text-sm font-semibold">
+            CCB Tournament · Night Matches
+          </p>
+          <p className="text-white/50 text-xs mt-1">
+            First 5 matches: 45 min gap · Last 5 matches: 40 min gap
+          </p>
+        </div>
+        {matchPairs.map(([a, b], idx) => (
+          <div
+            key={`${a}-${b}`}
+            data-ocid={`fixed_schedule.item.${idx + 1}`}
+            className="rounded-2xl border border-white/10 p-4 flex items-center gap-4"
+            style={{
+              background:
+                idx < 5
+                  ? "linear-gradient(135deg, rgba(250,255,0,0.06) 0%, rgba(0,0,0,0.3) 100%)"
+                  : "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0.3) 100%)",
+              boxShadow: "0 2px 12px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div className="flex flex-col items-center min-w-[40px]">
+              <span className="text-yellow-400 font-black text-lg leading-none">
+                #{idx + 1}
+              </span>
+            </div>
+            <div className="flex-1">
+              <div className="text-white font-bold text-sm">{teamName(a)}</div>
+              <div className="text-yellow-400 text-xs font-semibold my-0.5">
+                VS
+              </div>
+              <div className="text-white font-bold text-sm">{teamName(b)}</div>
+            </div>
+            <div className="text-right">
+              <span className="text-yellow-300 font-bold text-sm">
+                {times[idx]}
+              </span>
+              <div className="text-white/40 text-xs mt-1">
+                {idx < 5 ? "+45 min" : "+40 min"}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// ANNOUNCEMENTS VIEW
+// ──────────────────────────────────────────────────────────────
+
+interface AnnouncementsViewProps {
+  onHome: () => void;
+}
+
+function AnnouncementsView({ onHome }: AnnouncementsViewProps) {
+  return (
+    <motion.div
+      key="announcements"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="min-h-screen flex flex-col"
+      style={{
+        background: "linear-gradient(180deg, #0a0a0a 0%, #0d1f0d 100%)",
+      }}
+    >
+      <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+        <button
+          type="button"
+          onClick={onHome}
+          className="flex items-center gap-2 text-yellow-300 font-bold"
+        >
+          <Home className="w-5 h-5" /> HOME
+        </button>
+        <span className="text-white font-bold text-lg tracking-wide">
+          ANNOUNCEMENTS
+        </span>
+        <div className="w-20" />
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        <AnnouncementSection />
+      </div>
+    </motion.div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// LIVE MATCH VIEW
+// ──────────────────────────────────────────────────────────────
+interface LiveMatchData {
+  teamA: string;
+  teamB: string;
+  totalRuns: number;
+  wickets: number;
+  balls: number;
+  totalOvers: number;
+  strikerName: string;
+  strikerRuns: number;
+  strikerBalls: number;
+  nonStrikerName: string;
+  nonStrikerRuns: number;
+  bowlerName: string;
+  target?: number;
+  isComplete: boolean;
+  inningsNum: number;
+  timestamp: number;
+}
+
+function LiveMatchView({ onBack }: { onBack: () => void }) {
+  const [liveData, setLiveData] = useState<LiveMatchData | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  useEffect(() => {
+    function readLiveData() {
+      try {
+        const raw = localStorage.getItem("ccb_live_match");
+        if (raw) {
+          const parsed = JSON.parse(raw) as LiveMatchData;
+          setLiveData(parsed);
+          setLastUpdated(new Date());
+        }
+      } catch {}
+    }
+    readLiveData();
+    const interval = setInterval(readLiveData, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function formatOversDisplay(balls: number, totalOvers: number) {
+    const ov = Math.floor(balls / 6);
+    const b = balls % 6;
+    return `${ov}.${b} / ${totalOvers}`;
+  }
+
+  const isStale = liveData ? Date.now() - liveData.timestamp > 30000 : false;
+
+  return (
+    <Page
+      key="live-match"
+      style={{
+        background:
+          "linear-gradient(160deg, #000000 0%, #1a0000 60%, #0d0000 100%)",
+      }}
+    >
+      {/* Header */}
+      <header className="flex items-center gap-3 px-4 pt-8 pb-4">
+        <button
+          type="button"
+          data-ocid="live_match.back.button"
+          onClick={onBack}
+          className="w-10 h-10 rounded-xl flex items-center justify-center border border-white/20 text-white/70 hover:text-white cursor-pointer transition-colors"
+          style={{ background: "rgba(255,255,255,0.06)" }}
+        >
+          <Home size={18} />
+        </button>
+        <div className="flex-1 text-center">
+          <h2
+            className="font-display font-bold text-white text-xl tracking-widest uppercase"
+            style={{ textShadow: "0 0 20px rgba(239,68,68,0.5)" }}
+          >
+            LIVE MATCH
+          </h2>
+        </div>
+        {/* Pulse indicator */}
+        {liveData && !liveData.isComplete && !isStale && (
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+            </span>
+          </div>
+        )}
+      </header>
+
+      <main className="flex-1 flex flex-col items-center gap-5 px-4 pb-8">
+        {!liveData ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            data-ocid="live_match.empty_state"
+            className="flex-1 flex flex-col items-center justify-center gap-4 text-center"
+          >
+            <div
+              className="w-20 h-20 rounded-full flex items-center justify-center"
+              style={{
+                background: "rgba(239,68,68,0.1)",
+                border: "2px dashed rgba(239,68,68,0.3)",
+              }}
+            >
+              <Wifi size={36} className="text-red-400/50" />
+            </div>
+            <p className="text-white/50 font-body text-base font-semibold tracking-wide">
+              No Active Match
+            </p>
+            <p className="text-white/30 font-body text-sm max-w-xs">
+              Start a match from the home screen to see live scores here.
+            </p>
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-sm flex flex-col gap-4"
+          >
+            {/* Status Badge */}
+            <div className="flex justify-center">
+              {liveData.isComplete ? (
+                <span
+                  data-ocid="live_match.success_state"
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold tracking-wider uppercase"
+                  style={{
+                    background: "rgba(34,197,94,0.15)",
+                    border: "1px solid rgba(34,197,94,0.4)",
+                    color: "#4ade80",
+                  }}
+                >
+                  ✓ COMPLETED
+                </span>
+              ) : isStale ? (
+                <span
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold tracking-wider uppercase"
+                  style={{
+                    background: "rgba(156,163,175,0.15)",
+                    border: "1px solid rgba(156,163,175,0.3)",
+                    color: "#9ca3af",
+                  }}
+                >
+                  ⏸ PAUSED
+                </span>
+              ) : (
+                <span
+                  data-ocid="live_match.loading_state"
+                  className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold tracking-wider uppercase animate-pulse"
+                  style={{
+                    background: "rgba(239,68,68,0.15)",
+                    border: "1px solid rgba(239,68,68,0.5)",
+                    color: "#f87171",
+                  }}
+                >
+                  ● LIVE
+                </span>
+              )}
+            </div>
+
+            {/* Match Title / Teams */}
+            <div
+              className="rounded-2xl p-5 text-center"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(239,68,68,0.12) 0%, rgba(0,0,0,0.5) 100%)",
+                border: "1px solid rgba(239,68,68,0.25)",
+                boxShadow: "0 0 24px rgba(239,68,68,0.15)",
+              }}
+            >
+              <p className="text-xs font-body tracking-widest uppercase text-white/40 mb-2">
+                {liveData.inningsNum === 1 ? "1st Innings" : "2nd Innings"}
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <span className="font-display font-bold text-white text-lg tracking-wide">
+                  {liveData.teamA}
+                </span>
+                <span className="text-white/40 font-body font-semibold text-sm">
+                  vs
+                </span>
+                <span className="font-display font-bold text-white/60 text-lg tracking-wide">
+                  {liveData.teamB}
+                </span>
+              </div>
+            </div>
+
+            {/* Main Scoreboard */}
+            <div
+              className="rounded-2xl p-6 flex flex-col items-center gap-2"
+              style={{
+                background: "linear-gradient(135deg, #0a0a0a 0%, #1a0500 100%)",
+                border: "1.5px solid rgba(239,68,68,0.3)",
+                boxShadow:
+                  "0 0 30px rgba(239,68,68,0.2), 0 8px 32px rgba(0,0,0,0.6)",
+              }}
+            >
+              {/* Big Score */}
+              <div
+                className="font-display font-black text-6xl tracking-tight leading-none"
+                style={{
+                  color: "#faff00",
+                  textShadow: "0 0 40px rgba(250,255,0,0.4)",
+                }}
+              >
+                {liveData.totalRuns}
+                <span
+                  className="text-red-400"
+                  style={{ textShadow: "0 0 20px rgba(239,68,68,0.5)" }}
+                >
+                  /{liveData.wickets}
+                </span>
+              </div>
+
+              {/* Overs */}
+              <p className="text-white/60 font-body text-base tracking-wide">
+                {formatOversDisplay(liveData.balls, liveData.totalOvers)} overs
+              </p>
+
+              {/* Target (2nd innings) */}
+              {liveData.target !== undefined && (
+                <div
+                  className="mt-1 px-4 py-2 rounded-lg text-center"
+                  style={{
+                    background: "rgba(250,255,0,0.08)",
+                    border: "1px solid rgba(250,255,0,0.2)",
+                  }}
+                >
+                  {liveData.totalRuns >= liveData.target ? (
+                    <p className="text-green-400 font-body font-bold text-sm">
+                      🎯 Target Reached!
+                    </p>
+                  ) : (
+                    <p className="text-yellow-300 font-body font-semibold text-sm">
+                      🎯 Target: {liveData.target} | Need:{" "}
+                      <strong>{liveData.target - liveData.totalRuns}</strong>{" "}
+                      runs
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Batsmen & Bowler */}
+            <div
+              className="rounded-2xl overflow-hidden"
+              style={{
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "rgba(255,255,255,0.04)",
+              }}
+            >
+              {/* Batsmen */}
+              <div className="px-4 py-3 border-b border-white/10">
+                <p className="text-xs tracking-widest uppercase text-white/40 font-body mb-2">
+                  Batting
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-yellow-300 text-xs font-bold">
+                        ★
+                      </span>
+                      <span className="text-white font-body font-semibold text-sm">
+                        {liveData.strikerName || "—"}
+                      </span>
+                    </div>
+                    <span className="font-display font-bold text-yellow-300 text-sm">
+                      {liveData.strikerRuns}
+                      <span className="text-white/40 font-body font-normal text-xs">
+                        {" "}
+                        ({liveData.strikerBalls})
+                      </span>
+                    </span>
+                  </div>
+                  {liveData.nonStrikerName && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-lime-400 font-body text-sm pl-4">
+                        {liveData.nonStrikerName}
+                      </span>
+                      <span className="font-display font-semibold text-lime-300 text-sm">
+                        {liveData.nonStrikerRuns}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Bowler */}
+              <div className="px-4 py-3">
+                <p className="text-xs tracking-widest uppercase text-white/40 font-body mb-1.5">
+                  Bowling
+                </p>
+                <p className="text-white/80 font-body font-semibold text-sm">
+                  {liveData.bowlerName || "—"}
+                </p>
+              </div>
+            </div>
+
+            {/* Last updated */}
+            {lastUpdated && (
+              <p className="text-center text-white/25 font-body text-xs">
+                Updated{" "}
+                {lastUpdated.toLocaleTimeString("en-PK", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </p>
+            )}
+          </motion.div>
+        )}
+      </main>
+    </Page>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// POST & VOTE VIEW
+// ──────────────────────────────────────────────────────────────
+
+// ──────────────────────────────────────────────────────────────
+// POST & VOTE VIEW
+// ──────────────────────────────────────────────────────────────
+
+function PostVoteView({
+  onHome,
+  teams,
+}: { onHome: () => void; teams: Team[] }) {
+  const [predTeamA, setPredTeamA] = React.useState<string>(
+    () => localStorage.getItem("ccb_pred_teamA") || "Team A",
+  );
+  const [predTeamB, setPredTeamB] = React.useState<string>(
+    () => localStorage.getItem("ccb_pred_teamB") || "Team B",
+  );
+  const [votesA, setVotesA] = React.useState<number>(() =>
+    Number(localStorage.getItem("ccb_votes_a") || "0"),
+  );
+  const [votesB, setVotesB] = React.useState<number>(() =>
+    Number(localStorage.getItem("ccb_votes_b") || "0"),
+  );
+  const [hasVoted, setHasVoted] = React.useState<boolean>(
+    () => localStorage.getItem("ccb_has_voted") === "true",
+  );
+  const [isAdmin, setIsAdmin] = React.useState(false);
+  const [showAdminLogin, setShowAdminLogin] = React.useState(false);
+  const [adminPwdInput, setAdminPwdInput] = React.useState("");
+  const [adminPwdError, setAdminPwdError] = React.useState(false);
+  const [showTeamSelect, setShowTeamSelect] = React.useState<"A" | "B" | null>(
+    null,
+  );
+  const [editingTeam, setEditingTeam] = React.useState<"A" | "B" | null>(null);
+  const [editNameA, setEditNameA] = React.useState(predTeamA);
+  const [editNameB, setEditNameB] = React.useState(predTeamB);
+  const [postText, setPostText] = React.useState("");
+  const [imagePreview, setImagePreview] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const totalVotes = votesA + votesB;
+  const pctA = totalVotes === 0 ? 50 : Math.round((votesA / totalVotes) * 100);
+  const pctB = 100 - pctA;
+
+  function handleVote(team: "A" | "B") {
+    if (hasVoted) return;
+    const newA = team === "A" ? votesA + 1 : votesA;
+    const newB = team === "B" ? votesB + 1 : votesB;
+    setVotesA(newA);
+    setVotesB(newB);
+    setHasVoted(true);
+    localStorage.setItem("ccb_votes_a", String(newA));
+    localStorage.setItem("ccb_votes_b", String(newB));
+    localStorage.setItem("ccb_has_voted", "true");
+  }
+
+  function handleAdminLogin() {
+    if (adminPwdInput === "Shahzad@99") {
+      setIsAdmin(true);
+      setShowAdminLogin(false);
+      setAdminPwdInput("");
+      setAdminPwdError(false);
+    } else {
+      setAdminPwdError(true);
+    }
+  }
+
+  function saveTeamName(team: "A" | "B", name: string) {
+    if (team === "A") {
+      setPredTeamA(name);
+      localStorage.setItem("ccb_pred_teamA", name);
+    } else {
+      setPredTeamB(name);
+      localStorage.setItem("ccb_pred_teamB", name);
+    }
+    setEditingTeam(null);
+    setShowTeamSelect(null);
+  }
+
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    }
+  }
+
+  const cardStyle: React.CSSProperties = {
+    background: "#1D1E33",
+    borderRadius: "25px",
+    boxShadow: "0 5px 20px rgba(0,0,0,0.5)",
+    border: "1px solid rgba(0,230,118,0.3)",
+    overflow: "hidden",
+    padding: "20px",
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      style={{
+        minHeight: "100dvh",
+        background: "#0A0E21",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      {/* AppBar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: "16px",
+          background: "transparent",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onHome}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "#00E676",
+            padding: "8px",
+          }}
+        >
+          <ArrowLeft size={24} />
+        </button>
+        <h1
+          style={{
+            flex: 1,
+            textAlign: "center",
+            color: "#FFD600",
+            fontWeight: "bold",
+            fontSize: "18px",
+            letterSpacing: "1px",
+          }}
+        >
+          MATCH PREDICTION
+        </h1>
+        <button
+          type="button"
+          data-ocid="post_vote.admin_lock.button"
+          onClick={() => {
+            if (isAdmin) {
+              setIsAdmin(false);
+            } else {
+              setShowAdminLogin(true);
+            }
+          }}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "8px",
+            fontSize: "22px",
+          }}
+        >
+          {isAdmin ? (
+            <span style={{ color: "#00E676" }}>🔓</span>
+          ) : (
+            <span style={{ color: "#FFD600" }}>🔒</span>
+          )}
+        </button>
+      </div>
+
+      {/* Admin Login Dialog */}
+      {showAdminLogin && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+        >
+          <div
+            data-ocid="post_vote.admin_login.dialog"
+            style={{
+              background: "#1D1E33",
+              borderRadius: "20px",
+              padding: "28px",
+              width: "100%",
+              maxWidth: "320px",
+              border: "1px solid rgba(0,230,118,0.3)",
+            }}
+          >
+            <h2
+              style={{
+                color: "#FFD600",
+                fontWeight: "bold",
+                textAlign: "center",
+                marginBottom: "20px",
+                fontSize: "16px",
+              }}
+            >
+              ADMIN LOGIN
+            </h2>
+            <input
+              type="password"
+              value={adminPwdInput}
+              onChange={(e) => {
+                setAdminPwdInput(e.target.value);
+                setAdminPwdError(false);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleAdminLogin()}
+              placeholder="Enter admin password"
+              data-ocid="post_vote.admin_password.input"
+              style={{
+                width: "100%",
+                background: "rgba(255,255,255,0.07)",
+                border: adminPwdError
+                  ? "1.5px solid #ff4444"
+                  : "1.5px solid rgba(255,255,255,0.2)",
+                borderRadius: "12px",
+                padding: "12px 16px",
+                color: "white",
+                fontSize: "14px",
+                outline: "none",
+                boxSizing: "border-box",
+                marginBottom: "8px",
+              }}
+            />
+            {adminPwdError && (
+              <p
+                style={{
+                  color: "#ff4444",
+                  fontSize: "12px",
+                  marginBottom: "12px",
+                }}
+              >
+                Wrong password. Try again.
+              </p>
+            )}
+            <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+              <button
+                type="button"
+                data-ocid="post_vote.admin_cancel.button"
+                onClick={() => {
+                  setShowAdminLogin(false);
+                  setAdminPwdInput("");
+                  setAdminPwdError(false);
+                }}
+                style={{
+                  flex: 1,
+                  padding: "11px",
+                  borderRadius: "12px",
+                  background: "transparent",
+                  border: "1.5px solid rgba(255,255,255,0.2)",
+                  color: "white",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-ocid="post_vote.admin_confirm.button"
+                onClick={handleAdminLogin}
+                style={{
+                  flex: 1,
+                  padding: "11px",
+                  borderRadius: "12px",
+                  background: "#FFD600",
+                  border: "none",
+                  color: "black",
+                  cursor: "pointer",
+                  fontWeight: "bold",
+                }}
+              >
+                LOGIN
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Team Select Modal */}
+      {showTeamSelect && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 100,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+        >
+          <div
+            style={{
+              background: "#1D1E33",
+              borderRadius: "20px",
+              padding: "24px",
+              width: "100%",
+              maxWidth: "320px",
+              border: "1px solid rgba(255,214,0,0.3)",
+              maxHeight: "70vh",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <h2
+              style={{
+                color: "#FFD600",
+                fontWeight: "bold",
+                marginBottom: "16px",
+                fontSize: "15px",
+              }}
+            >
+              SELECT TEAM {showTeamSelect}
+            </h2>
+            <div
+              style={{
+                overflowY: "auto",
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                gap: "6px",
+              }}
+            >
+              {teams.map((t, i) => (
+                <button
+                  key={t.name}
+                  type="button"
+                  data-ocid={`post_vote.team_select.item.${i + 1}`}
+                  onClick={() => saveTeamName(showTeamSelect!, t.name)}
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: "10px",
+                    background: "rgba(255,255,255,0.05)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "white",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontSize: "14px",
+                    fontWeight: 500,
+                  }}
+                >
+                  {t.name}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              data-ocid="post_vote.team_select_cancel.button"
+              onClick={() => setShowTeamSelect(null)}
+              style={{
+                marginTop: "14px",
+                padding: "10px",
+                borderRadius: "12px",
+                background: "transparent",
+                border: "1.5px solid rgba(255,255,255,0.2)",
+                color: "white",
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Body */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "20px",
+        }}
+      >
+        {/* Voting Card */}
+        <div style={cardStyle}>
+          <p
+            style={{
+              textAlign: "center",
+              color: "#FFD600",
+              fontWeight: "bold",
+              fontSize: "16px",
+              marginBottom: "20px",
+              letterSpacing: "0.1em",
+            }}
+          >
+            WHO WILL WIN? 🏆
+          </p>
+
+          {/* Teams Row */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              marginBottom: "20px",
+            }}
+          >
+            {/* Team A */}
+            <div style={{ flex: 1, textAlign: "center" }}>
+              {editingTeam === "A" ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={editNameA}
+                    onChange={(e) => setEditNameA(e.target.value)}
+                    onBlur={() => saveTeamName("A", editNameA)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && saveTeamName("A", editNameA)
+                    }
+                    data-ocid="post_vote.team_a_name.input"
+                    style={{
+                      background: "rgba(255,255,255,0.08)",
+                      border: "1.5px solid #FFD600",
+                      borderRadius: "8px",
+                      padding: "6px 10px",
+                      color: "white",
+                      fontSize: "13px",
+                      outline: "none",
+                      textAlign: "center",
+                      width: "100%",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    data-ocid="post_vote.team_a_select.button"
+                    onClick={() => setShowTeamSelect("A")}
+                    style={{
+                      fontSize: "11px",
+                      color: "#00E676",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: "2px",
+                    }}
+                  >
+                    📋 Select from list
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: "white",
+                      fontWeight: "bold",
+                      fontSize: "14px",
+                    }}
+                  >
+                    {predTeamA}
+                  </span>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      data-ocid="post_vote.team_a_edit.button"
+                      onClick={() => {
+                        setEditNameA(predTeamA);
+                        setEditingTeam("A");
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "2px",
+                      }}
+                    >
+                      <Pencil size={14} color="#FFD600" />
+                    </button>
+                  )}
+                </div>
+              )}
+              <div
+                style={{
+                  color: "#00E676",
+                  fontWeight: "bold",
+                  fontSize: "22px",
+                  marginTop: "10px",
+                }}
+              >
+                {pctA}%
+              </div>
+              <button
+                type="button"
+                data-ocid="post_vote.vote_a.button"
+                disabled={hasVoted}
+                onClick={() => handleVote("A")}
+                style={{
+                  marginTop: "10px",
+                  padding: "8px 20px",
+                  borderRadius: "20px",
+                  background: hasVoted ? "rgba(255,214,0,0.25)" : "#FFD600",
+                  border: "none",
+                  color: "black",
+                  fontWeight: "bold",
+                  fontSize: "13px",
+                  cursor: hasVoted ? "default" : "pointer",
+                  opacity: hasVoted ? 0.7 : 1,
+                }}
+              >
+                {hasVoted ? "VOTED ✓" : "VOTE"}
+              </button>
+            </div>
+
+            {/* VS */}
+            <div
+              style={{
+                color: "white",
+                fontWeight: "bold",
+                fontSize: "18px",
+                flexShrink: 0,
+              }}
+            >
+              VS
+            </div>
+
+            {/* Team B */}
+            <div style={{ flex: 1, textAlign: "center" }}>
+              {editingTeam === "B" ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={editNameB}
+                    onChange={(e) => setEditNameB(e.target.value)}
+                    onBlur={() => saveTeamName("B", editNameB)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && saveTeamName("B", editNameB)
+                    }
+                    data-ocid="post_vote.team_b_name.input"
+                    style={{
+                      background: "rgba(255,255,255,0.08)",
+                      border: "1.5px solid #FFD600",
+                      borderRadius: "8px",
+                      padding: "6px 10px",
+                      color: "white",
+                      fontSize: "13px",
+                      outline: "none",
+                      textAlign: "center",
+                      width: "100%",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    data-ocid="post_vote.team_b_select.button"
+                    onClick={() => setShowTeamSelect("B")}
+                    style={{
+                      fontSize: "11px",
+                      color: "#00E676",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: "2px",
+                    }}
+                  >
+                    📋 Select from list
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: "white",
+                      fontWeight: "bold",
+                      fontSize: "14px",
+                    }}
+                  >
+                    {predTeamB}
+                  </span>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      data-ocid="post_vote.team_b_edit.button"
+                      onClick={() => {
+                        setEditNameB(predTeamB);
+                        setEditingTeam("B");
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "2px",
+                      }}
+                    >
+                      <Pencil size={14} color="#FFD600" />
+                    </button>
+                  )}
+                </div>
+              )}
+              <div
+                style={{
+                  color: "#00E676",
+                  fontWeight: "bold",
+                  fontSize: "22px",
+                  marginTop: "10px",
+                }}
+              >
+                {pctB}%
+              </div>
+              <button
+                type="button"
+                data-ocid="post_vote.vote_b.button"
+                disabled={hasVoted}
+                onClick={() => handleVote("B")}
+                style={{
+                  marginTop: "10px",
+                  padding: "8px 20px",
+                  borderRadius: "20px",
+                  background: hasVoted ? "rgba(255,214,0,0.25)" : "#FFD600",
+                  border: "none",
+                  color: "black",
+                  fontWeight: "bold",
+                  fontSize: "13px",
+                  cursor: hasVoted ? "default" : "pointer",
+                  opacity: hasVoted ? 0.7 : 1,
+                }}
+              >
+                {hasVoted ? "VOTED ✓" : "VOTE"}
+              </button>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div
+            style={{
+              height: "8px",
+              borderRadius: "4px",
+              background: "rgba(255,255,255,0.1)",
+              marginBottom: "8px",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${pctA}%`,
+                background: "linear-gradient(90deg, #00E676, #FFD600)",
+                borderRadius: "4px",
+                transition: "width 0.5s ease",
+              }}
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: "11px",
+              color: "rgba(255,255,255,0.5)",
+              marginBottom: "4px",
+            }}
+          >
+            <span>{predTeamA}</span>
+            <span>Total Votes: {totalVotes}</span>
+            <span>{predTeamB}</span>
+          </div>
+
+          {isAdmin && (
+            <p
+              style={{
+                textAlign: "center",
+                color: "#00E676",
+                fontSize: "11px",
+                marginTop: "8px",
+                background: "rgba(0,230,118,0.1)",
+                padding: "5px 10px",
+                borderRadius: "8px",
+              }}
+            >
+              🔓 Admin Mode — tap ✏️ to select teams
+            </p>
+          )}
+        </div>
+
+        {/* Post Card */}
+        <div style={cardStyle}>
+          <p
+            style={{
+              color: "#FFD600",
+              fontWeight: "bold",
+              fontSize: "13px",
+              marginBottom: "12px",
+              letterSpacing: "0.1em",
+            }}
+          >
+            📢 POST UPDATE
+          </p>
+          <div style={{ position: "relative" }}>
+            <span
+              style={{
+                position: "absolute",
+                left: "12px",
+                top: "14px",
+                color: "#FFD600",
+              }}
+            >
+              <Pencil size={16} />
+            </span>
+            <textarea
+              value={postText}
+              onChange={(e) => setPostText(e.target.value)}
+              placeholder="Write your post..."
+              rows={3}
+              style={{
+                width: "100%",
+                background: "rgba(255,255,255,0.05)",
+                border: "none",
+                borderRadius: "15px",
+                padding: "12px 12px 12px 38px",
+                color: "white",
+                fontSize: "14px",
+                resize: "none",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          {imagePreview && (
+            <div style={{ marginTop: "8px", position: "relative" }}>
+              <img
+                src={imagePreview}
+                alt="preview"
+                style={{
+                  width: "100%",
+                  borderRadius: "12px",
+                  maxHeight: "200px",
+                  objectFit: "cover",
+                }}
+              />
+              <button
+                onClick={() => setImagePreview(null)}
+                type="button"
+                style={{
+                  position: "absolute",
+                  top: "8px",
+                  right: "8px",
+                  background: "rgba(0,0,0,0.6)",
+                  border: "none",
+                  borderRadius: "50%",
+                  color: "white",
+                  cursor: "pointer",
+                  width: "28px",
+                  height: "28px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginTop: "12px",
+            }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleImageUpload}
+            />
+            <button
+              type="button"
+              data-ocid="post_vote.add_photo.button"
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "#00E676",
+                padding: "4px",
+              }}
+            >
+              <Camera size={26} />
+            </button>
+            <button
+              type="button"
+              data-ocid="post_vote.post.button"
+              onClick={() => {
+                setPostText("");
+                setImagePreview(null);
+              }}
+              style={{
+                background: "#00E676",
+                border: "none",
+                borderRadius: "12px",
+                padding: "10px 28px",
+                color: "black",
+                fontWeight: "bold",
+                cursor: "pointer",
+              }}
+            >
+              POST
+            </button>
+          </div>
+        </div>
+
+        {/* Download & Share */}
+        <div style={{ display: "flex", gap: "15px", marginBottom: "20px" }}>
+          <button
+            type="button"
+            data-ocid="post_vote.download_button"
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.href);
+            }}
+            style={{
+              flex: 1,
+              height: "56px",
+              background:
+                "linear-gradient(135deg, #448AFF, rgba(68,138,255,0.7))",
+              borderRadius: "20px",
+              boxShadow: "0 4px 12px rgba(68,138,255,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              color: "white",
+              fontWeight: "bold",
+              fontSize: "14px",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            <Download size={18} />
+            DOWNLOAD
+          </button>
+          <button
+            type="button"
+            data-ocid="post_vote.share.button"
+            onClick={() => {
+              if (navigator.share) {
+                navigator.share({
+                  title: "CCB SCORING PRO",
+                  url: window.location.href,
+                });
+              } else {
+                navigator.clipboard.writeText(window.location.href);
+              }
+            }}
+            style={{
+              flex: 1,
+              height: "56px",
+              background:
+                "linear-gradient(135deg, #FF9100, rgba(255,145,0,0.7))",
+              borderRadius: "20px",
+              boxShadow: "0 4px 12px rgba(255,145,0,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              color: "white",
+              fontWeight: "bold",
+              fontSize: "14px",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            <Share2 size={18} />
+            SHARE
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [view, setView] = useState<View>("home");
@@ -3735,6 +6471,7 @@ export default function App() {
   const [currentMatch, setCurrentMatch] = useState<MatchRecord | null>(null);
   const [pastMatches, setPastMatches] = useState<MatchRecord[]>([]);
   const [tournament, setTournament] = useState<Tournament>(EMPTY_TOURNAMENT);
+  const [matchInfoCards, setMatchInfoCards] = useState<MatchInfoCard[]>([]);
 
   useEffect(() => {
     try {
@@ -3742,8 +6479,17 @@ export default function App() {
       if (saved) setPastMatches(JSON.parse(saved));
       const savedT = localStorage.getItem("ccb_tournament");
       if (savedT) setTournament(JSON.parse(savedT));
+      const savedMIC = localStorage.getItem("ccb_match_info_cards");
+      if (savedMIC) setMatchInfoCards(JSON.parse(savedMIC));
     } catch {}
   }, []);
+
+  function handleUpdateMatchInfoCards(cards: MatchInfoCard[]) {
+    setMatchInfoCards(cards);
+    try {
+      localStorage.setItem("ccb_match_info_cards", JSON.stringify(cards));
+    } catch {}
+  }
 
   function handleUpdateTournament(t: Tournament) {
     setTournament(t);
@@ -3805,6 +6551,13 @@ export default function App() {
   const target =
     currentInningsNum === 2 && innings1 ? innings1.totalRuns + 1 : undefined;
 
+  const lastMotm =
+    pastMatches.length > 0
+      ? (pastMatches[0].resultText?.match(
+          /🏆 Man of the Match: (.+?)(?:\n|$)/,
+        )?.[1] ?? "")
+      : "";
+
   if (showSplash) {
     return (
       <AnimatePresence>
@@ -3823,6 +6576,10 @@ export default function App() {
             onTeams={() => setView("teams")}
             onEditTeams={() => setShowEditTeams(true)}
             onTournament={() => setView("tournament")}
+            onFixedSchedule={() => setView("fixed-schedule")}
+            onAnnouncements={() => setView("announcements")}
+            onLiveMatch={() => setView("live-match")}
+            onPostVote={() => setView("post-vote")}
             pastMatches={pastMatches}
           />
         )}
@@ -3848,6 +6605,7 @@ export default function App() {
             totalOvers={setupOvers}
             target={target}
             onUpdate={(next) => setActiveInnings(next)}
+            onHome={() => setView("home")}
             onInningsEnd={
               currentInningsNum === 1 ? handleInnings1End : handleInnings2End
             }
@@ -3879,6 +6637,43 @@ export default function App() {
             onBack={() => setView("home")}
             tournament={tournament}
             onUpdate={handleUpdateTournament}
+            teams={teams}
+          />
+        )}
+
+        {view === "match-info" && (
+          <MatchInfoView
+            key="match-info"
+            onBack={() => setView("home")}
+            cards={matchInfoCards}
+            onUpdate={handleUpdateMatchInfoCards}
+            lastMotm={lastMotm}
+          />
+        )}
+
+        {view === "fixed-schedule" && (
+          <FixedScheduleView
+            key="fixed-schedule"
+            teams={teams}
+            onHome={() => setView("home")}
+          />
+        )}
+
+        {view === "announcements" && (
+          <AnnouncementsView
+            key="announcements"
+            onHome={() => setView("home")}
+          />
+        )}
+
+        {view === "live-match" && (
+          <LiveMatchView key="live-match" onBack={() => setView("home")} />
+        )}
+
+        {view === "post-vote" && (
+          <PostVoteView
+            key="post-vote"
+            onHome={() => setView("home")}
             teams={teams}
           />
         )}

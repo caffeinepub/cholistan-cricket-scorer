@@ -1,26 +1,44 @@
 # Cholistan Cricket Scorer
 
 ## Current State
-The app has a Tournament section with pool/group management (Pool A-D) and team assignments. Admin can edit teams and pools with password protection.
+The dashboard home screen uses lucide-react SVG icons (Play, Users, Pencil, Trophy, Calendar, Bell, Wifi, MessageSquare) for 8 dashboard cards. The app logo in the header and splash screen uses `/assets/uploads/1773769089361-1.png`.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Tournament Pool Match creation: Admin can create matches under Pool A/B/C/D by selecting two teams, entering a date/time, and setting a Status (Upcoming/Live/Completed)
-- Each match card in a pool shows: Team A vs Team B, Date, Time, Status badge
-- Admin can delete matches from pools (password protected)
+- Nothing new — icon replacement only
 
 ### Modify
-- Tournament screen: Pools section now shows both team standings AND scheduled matches per pool
-- Pools displayed as tabs or expandable sections (A, B, C, D), each showing matches list with dates
+- Replace all 8 dashboard card icons with generated PNG images (neon glow, futuristic cricket style)
+- Replace app logo in both header and splash screen with new HB logo
+- PNG icons rendered as `<img>` tags with `w-14 h-14` size and `drop-shadow` glow filter
 
 ### Remove
-- Nothing removed
+- Lucide-react icon components from dashboard card renders (Play, Users, Pencil, Trophy, Calendar, Bell, Wifi, MessageSquare imports can stay but are no longer used in cards)
 
 ## Implementation Plan
-1. Add PoolMatch type: { id, poolId, teamA, teamB, date, time, status }
-2. Add poolMatches state array in Tournament section
-3. Add 'Add Match' button per pool (admin only, password protected)
-4. Add match creation dialog: pool selector, team A, team B (from 24-team list), date picker, time input, status dropdown
-5. Render match cards per pool with date, time, status badge color-coded
-6. Add delete button on each match card (admin only)
+
+### Icon Mapping (card → PNG path)
+1. START MATCH → `/assets/generated/icon-start-match-transparent.dim_256x256.png`
+2. TEAM DIRECTORY → `/assets/generated/icon-team-directory-transparent.dim_256x256.png`
+3. EDIT TEAMS → `/assets/generated/icon-edit-teams-transparent.dim_256x256.png`
+4. TOURNAMENT → `/assets/generated/icon-tournament-transparent.dim_256x256.png`
+5. FIXED SCHEDULE → `/assets/generated/icon-schedule-transparent.dim_256x256.png`
+6. ANNOUNCEMENTS → `/assets/generated/icon-scoreboard-transparent.dim_256x256.png`
+7. LIVE MATCH → `/assets/generated/icon-live-match-transparent.dim_256x256.png`
+8. POST & VOTE → `/assets/generated/icon-settings-transparent.dim_256x256.png`
+
+### Logo
+- Header img src → `/assets/generated/logo-hb-cricket-transparent.dim_512x512.png`
+- Splash screen img src → `/assets/generated/logo-hb-cricket-transparent.dim_512x512.png`
+- Keep existing sizing and glow filter styles
+
+### Render Pattern
+Replace each icon component like:
+```tsx
+<Play className="w-10 h-10 text-yellow-300" />
+```
+With:
+```tsx
+<img src="/assets/generated/icon-start-match-transparent.dim_256x256.png" alt="Start Match" className="w-14 h-14 object-contain" style={{ filter: 'drop-shadow(0 0 8px #00ff88)' }} />
+```

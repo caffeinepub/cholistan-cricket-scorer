@@ -27,7 +27,6 @@ function formatTime(ts: number): string {
 export default function AnnouncementSection() {
   const { actor } = useActor();
 
-  // Image stored in localStorage for persistence (backend API doesn't expose image upload)
   const [imageUrl, setImageUrl] = useState<string | null>(() => {
     try {
       return localStorage.getItem(IMAGE_KEY);
@@ -49,15 +48,14 @@ export default function AnnouncementSection() {
     () => localStorage.getItem(LIKE_KEY) === "1",
   );
   const [comments, setComments] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [backendReady, setBackendReady] = useState(false);
   const seenTracked = useRef(false);
 
-  // Comment form
   const [commentName, setCommentName] = useState("");
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [commentError, setCommentError] = useState("");
 
-  // Admin
   const [showAdminDialog, setShowAdminDialog] = useState(false);
   const [adminPwd, setAdminPwd] = useState("");
   const [adminPwdError, setAdminPwdError] = useState(false);
@@ -70,7 +68,6 @@ export default function AnnouncementSection() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load data from backend
   const loadData = useCallback(async () => {
     if (!actor) return;
     try {
@@ -84,24 +81,22 @@ export default function AnnouncementSection() {
       setLikeCount(Number(likes));
 
       if (ann) {
-        // Parse comments from text JSON
         let parsedComments: Comment[] = [];
         try {
           const parsed = JSON.parse(ann.text);
           if (Array.isArray(parsed)) parsedComments = parsed;
         } catch {
-          // text is plain text, no comments yet
+          /* plain text */
         }
         setComments(parsedComments);
       }
     } catch (e) {
       console.error("Failed to load announcement:", e);
     } finally {
-      setLoading(false);
+      setBackendReady(true);
     }
   }, [actor]);
 
-  // Increment seen count once per session on mount
   useEffect(() => {
     if (!actor || seenTracked.current) return;
     seenTracked.current = true;
@@ -111,6 +106,12 @@ export default function AnnouncementSection() {
       .catch(() => {});
     loadData();
   }, [actor, loadData]);
+
+  // If actor never loads, mark backend ready after timeout so UI is not stuck
+  useEffect(() => {
+    const t = setTimeout(() => setBackendReady(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
 
   async function handleLike() {
     if (liked || !actor) return;
@@ -125,7 +126,7 @@ export default function AnnouncementSection() {
   }
 
   async function saveCommentsToBackend(updated: Comment[]) {
-    if (!actor) return;
+    if (!actor) throw new Error("Backend not available");
     await actor.createOrUpdateAnnouncement(
       ADMIN_PASSWORD,
       0n,
@@ -134,7 +135,12 @@ export default function AnnouncementSection() {
   }
 
   async function handleCommentSubmit() {
-    if (!commentName.trim() || !commentText.trim() || !actor) return;
+    if (!commentName.trim() || !commentText.trim()) return;
+    if (!actor) {
+      setCommentError("Connection unavailable. Please refresh and try again.");
+      return;
+    }
+    setCommentError("");
     setSubmitting(true);
     try {
       const newComment: Comment = {
@@ -150,6 +156,7 @@ export default function AnnouncementSection() {
       setCommentText("");
     } catch (e) {
       console.error("Comment submit failed:", e);
+      setCommentError("Failed to post comment. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -187,10 +194,8 @@ export default function AnnouncementSection() {
       setShowUploadModal(false);
       return;
     }
-    // Save both caption and image to localStorage on publish
     localStorage.setItem(CAPTION_KEY, captionInput);
     setCaption(captionInput);
-    // imageUrl is already persisted in localStorage when file was picked
     setShowUploadModal(false);
     setCaptionInput("");
   }
@@ -221,14 +226,11 @@ export default function AnnouncementSection() {
 
     setUploading(true);
     try {
-      // Convert to Data URL for persistent local storage
       await new Promise<void>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (ev) => {
           const dataUrl = ev.target?.result as string;
-          // Save image to localStorage immediately for persistence
           localStorage.setItem(IMAGE_KEY, dataUrl);
-          // Only update image preview; caption/caption state saved on publishPost
           setImageUrl(dataUrl);
           resolve();
         };
@@ -240,21 +242,6 @@ export default function AnnouncementSection() {
     } finally {
       setUploading(false);
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="w-full max-w-sm mx-auto px-4 mb-0 mt-4">
-        <div
-          className="rounded-2xl border-2 border-orange-500/40 bg-black/70 p-4"
-          data-ocid="announcement.loading_state"
-        >
-          <div className="h-4 bg-orange-500/20 rounded w-2/3 mb-3 animate-pulse" />
-          <div className="h-24 bg-white/5 rounded-xl mb-3 animate-pulse" />
-          <div className="h-8 bg-white/5 rounded animate-pulse" />
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -288,7 +275,6 @@ export default function AnnouncementSection() {
             </div>
           </div>
 
-          {/* Upload progress */}
           {uploading && (
             <div className="px-4 py-2 bg-orange-950/30">
               <div className="flex items-center gap-2">
@@ -300,31 +286,38 @@ export default function AnnouncementSection() {
             </div>
           )}
 
-          {/* Image */}
           {imageUrl ? (
             <div className="w-full bg-black" data-ocid="announcement.card">
               <img
                 src={imageUrl}
                 alt="Tournament Announcement"
                 className="w-full object-contain"
-                style={{
-                  maxHeight: 300,
-                  display: "block",
-                  imageRendering: "auto",
-                }}
+                style={{ maxHeight: 300, display: "block" }}
               />
             </div>
           ) : !caption ? (
-            <div className="px-4 py-8 text-center bg-black/20">
-              <div className="text-4xl mb-2">🏏</div>
-              <p className="text-white/40 text-sm">No announcement yet</p>
-              <p className="text-white/25 text-xs mt-1">
-                Admin can post text or upload a tournament photo
-              </p>
+            <div className="px-4 py-6 text-center bg-black/20">
+              <button
+                type="button"
+                data-ocid="announcement.upload_big.button"
+                onClick={() => requestAdmin("upload")}
+                className="w-full py-6 rounded-2xl border-2 border-dashed border-orange-500/40 bg-transparent cursor-pointer hover:bg-orange-500/10 hover:border-orange-500/70 transition-all flex flex-col items-center gap-3 group"
+              >
+                <span className="text-5xl group-hover:scale-110 transition-transform">
+                  📷
+                </span>
+                <div>
+                  <p className="text-orange-300 font-bold text-base">
+                    Upload Photo / Post
+                  </p>
+                  <p className="text-white/40 text-xs mt-1">
+                    Tap to add announcement text or photo
+                  </p>
+                </div>
+              </button>
             </div>
           ) : null}
 
-          {/* Caption */}
           {caption && (
             <div className="px-4 py-3 bg-orange-950/30 border-t border-orange-500/20">
               <p className="text-orange-200 text-sm leading-relaxed whitespace-pre-wrap">
@@ -333,9 +326,8 @@ export default function AnnouncementSection() {
             </div>
           )}
 
-          {/* Stats row: Seen | Like | Comments */}
-          <div className="flex items-center px-4 py-2.5 border-t border-white/10 bg-black/50 gap-5">
-            {/* Seen */}
+          {/* Stats row */}
+          <div className="flex items-center px-4 py-2.5 border-t border-white/10 bg-black/50 gap-3 flex-wrap">
             <div
               className="flex items-center gap-1.5"
               data-ocid="announcement.panel"
@@ -347,18 +339,16 @@ export default function AnnouncementSection() {
               </span>
             </div>
 
-            {/* Separator */}
             <div className="w-px h-4 bg-white/10" />
 
-            {/* Like */}
             <button
               type="button"
               data-ocid="announcement.toggle"
               onClick={handleLike}
-              disabled={liked}
+              disabled={liked || !actor}
               className={`flex items-center gap-1.5 transition-all select-none ${
-                liked
-                  ? "cursor-default"
+                liked || !actor
+                  ? "cursor-default opacity-60"
                   : "cursor-pointer hover:scale-110 active:scale-95"
               }`}
               title={liked ? "You liked this" : "Like"}
@@ -379,10 +369,8 @@ export default function AnnouncementSection() {
               </span>
             </button>
 
-            {/* Separator */}
             <div className="w-px h-4 bg-white/10" />
 
-            {/* Comment count */}
             <div className="flex items-center gap-1.5" title="Comments">
               <span className="text-white/50 text-sm">💬</span>
               <span className="text-white/60 text-xs font-mono tabular-nums">
@@ -390,10 +378,8 @@ export default function AnnouncementSection() {
               </span>
             </div>
 
-            {/* Separator */}
             <div className="w-px h-4 bg-white/10" />
 
-            {/* Copy Link */}
             <button
               type="button"
               data-ocid="announcement.copy_link.button"
@@ -413,16 +399,16 @@ export default function AnnouncementSection() {
                 {copiedLink ? "✅" : "🔗"}
               </span>
               <span
-                className={`text-xs transition-colors ${copiedLink ? "text-green-400" : "text-white/60"}`}
+                className={`text-xs transition-colors ${
+                  copiedLink ? "text-green-400" : "text-white/60"
+                }`}
               >
                 {copiedLink ? "COPIED!" : "Copy"}
               </span>
             </button>
 
-            {/* Separator */}
             <div className="w-px h-4 bg-white/10" />
 
-            {/* Share */}
             <button
               type="button"
               data-ocid="announcement.share.button"
@@ -463,6 +449,17 @@ export default function AnnouncementSection() {
             <p className="text-white/40 text-xs uppercase tracking-wider mb-2 font-semibold">
               Leave a Comment
             </p>
+            {!backendReady && (
+              <p className="text-white/30 text-xs text-center py-2">
+                Connecting to server...
+              </p>
+            )}
+            {backendReady && !actor && (
+              <p className="text-yellow-400/60 text-xs text-center py-1 mb-2 border border-yellow-400/20 rounded-lg">
+                ⚠ Comments require a connection. Please refresh if this
+                persists.
+              </p>
+            )}
             <input
               type="text"
               value={commentName}
@@ -470,7 +467,8 @@ export default function AnnouncementSection() {
               placeholder="Your Name"
               data-ocid="announcement.input"
               maxLength={40}
-              className="w-full bg-black/50 text-white border border-white/15 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400/70 mb-2 placeholder-white/20 transition-colors"
+              disabled={!actor}
+              className="w-full bg-black/50 text-white border border-white/15 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400/70 mb-2 placeholder-white/20 transition-colors disabled:opacity-40"
             />
             <textarea
               value={commentText}
@@ -479,7 +477,8 @@ export default function AnnouncementSection() {
               data-ocid="announcement.textarea"
               rows={2}
               maxLength={300}
-              className="w-full bg-black/50 text-white border border-white/15 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400/70 resize-none placeholder-white/20 mb-2 transition-colors"
+              disabled={!actor}
+              className="w-full bg-black/50 text-white border border-white/15 rounded-lg px-3 py-2 text-sm outline-none focus:border-orange-400/70 resize-none placeholder-white/20 mb-2 transition-colors disabled:opacity-40"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -487,6 +486,9 @@ export default function AnnouncementSection() {
                 }
               }}
             />
+            {commentError && (
+              <p className="text-red-400 text-xs mb-2">⚠ {commentError}</p>
+            )}
             <button
               type="button"
               data-ocid="announcement.submit_button"
@@ -515,12 +517,9 @@ export default function AnnouncementSection() {
                   data-ocid={`announcement.item.${i + 1}`}
                   className="flex items-start gap-3 px-4 py-3 border-b border-white/5 last:border-0 bg-black/10 hover:bg-black/25 transition-colors group"
                 >
-                  {/* Avatar */}
                   <div className="w-8 h-8 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center flex-shrink-0 text-xs font-bold text-orange-400 uppercase">
                     {c.authorName.charAt(0)}
                   </div>
-
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-2 mb-0.5">
                       <span className="text-orange-300 text-xs font-semibold truncate">
@@ -534,8 +533,6 @@ export default function AnnouncementSection() {
                       {c.text}
                     </p>
                   </div>
-
-                  {/* Admin delete */}
                   <button
                     type="button"
                     data-ocid={`announcement.delete_button.${i + 1}`}
@@ -561,7 +558,6 @@ export default function AnnouncementSection() {
         </div>
       </div>
 
-      {/* Hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -594,7 +590,7 @@ export default function AnnouncementSection() {
               id="ann-caption"
               value={captionInput}
               onChange={(e) => setCaptionInput(e.target.value)}
-              placeholder="Write your announcement text here... (required or upload a photo)"
+              placeholder="Write your announcement text here..."
               data-ocid="announcement.textarea"
               rows={5}
               className="w-full bg-black text-white border border-orange-500/50 rounded-lg px-3 py-2.5 text-sm mb-3 outline-none focus:border-orange-400 resize-none placeholder-white/30"
