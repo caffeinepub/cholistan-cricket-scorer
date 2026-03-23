@@ -586,26 +586,51 @@ function HomeView({
   myTeams = [],
   onAddPlayer,
 }: HomeViewProps) {
-  const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(null);
-  const [pwaInstalled, setPwaInstalled] = useState(false);
+  const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(
+    () => (window as any).__deferredInstallPrompt || null,
+  );
+  const [pwaInstalled, setPwaInstalled] = useState(
+    () => !!(window as any).__pwaInstalled,
+  );
 
   useEffect(() => {
+    // Pick up prompt if already captured globally before React mounted
+    if ((window as any).__deferredInstallPrompt) {
+      setPwaInstallPrompt((window as any).__deferredInstallPrompt);
+    }
+    const onAvailable = () => {
+      setPwaInstallPrompt((window as any).__deferredInstallPrompt);
+    };
+    const onInstalled = () => {
+      setPwaInstalled(true);
+      setPwaInstallPrompt(null);
+    };
+    window.addEventListener("pwa-install-available", onAvailable);
+    window.addEventListener("pwa-app-installed", onInstalled);
+    // Also listen directly in case the event fires after mount
     const handler = (e: any) => {
       e.preventDefault();
+      (window as any).__deferredInstallPrompt = e;
       setPwaInstallPrompt(e);
     };
     window.addEventListener("beforeinstallprompt", handler);
-    window.addEventListener("appinstalled", () => setPwaInstalled(true));
     return () => {
+      window.removeEventListener("pwa-install-available", onAvailable);
+      window.removeEventListener("pwa-app-installed", onInstalled);
       window.removeEventListener("beforeinstallprompt", handler);
     };
   }, []);
 
-  const handleInstallApp = async () => {
-    if (pwaInstallPrompt) {
-      pwaInstallPrompt.prompt();
-      const result = await pwaInstallPrompt.userChoice;
-      if (result.outcome === "accepted") setPwaInstalled(true);
+  const _handleInstallApp = async () => {
+    const prompt = pwaInstallPrompt || (window as any).__deferredInstallPrompt;
+    if (prompt) {
+      prompt.prompt();
+      const result = await prompt.userChoice;
+      if (result.outcome === "accepted") {
+        setPwaInstalled(true);
+        setPwaInstallPrompt(null);
+        (window as any).__deferredInstallPrompt = null;
+      }
     } else {
       alert('To install: tap the browser menu → "Add to Home Screen"');
     }
@@ -895,28 +920,6 @@ function HomeView({
               maxWidth: "24rem",
             }}
           >
-            {pwaInstallPrompt && (
-              <button
-                type="button"
-                data-ocid="home.install_app.button"
-                onClick={handleInstallApp}
-                style={{
-                  background: "rgba(0,100,255,0.15)",
-                  color: "#60a5fa",
-                  border: "1px solid rgba(96,165,250,0.35)",
-                  borderRadius: 12,
-                  padding: "8px 14px",
-                  fontSize: "0.82rem",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
-                📲 Install App
-              </button>
-            )}
             <button
               type="button"
               data-ocid="home.share_app.button"
@@ -1507,6 +1510,36 @@ function HomeView({
         </div>
       )}
       <Footer dev />
+
+      {/* Floating PWA Install Button */}
+      {pwaInstallPrompt && !pwaInstalled && (
+        <button
+          type="button"
+          data-ocid="home.install_app.button"
+          onClick={_handleInstallApp}
+          style={{
+            position: "fixed",
+            bottom: "80px",
+            right: "16px",
+            zIndex: 9999,
+            background: "linear-gradient(135deg, #22c55e, #16a34a)",
+            color: "#fff",
+            border: "none",
+            borderRadius: "50px",
+            padding: "12px 20px",
+            fontSize: "0.9rem",
+            fontWeight: 700,
+            cursor: "pointer",
+            boxShadow: "0 4px 20px rgba(34,197,94,0.5)",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            animation: "pulse 2s infinite",
+          }}
+        >
+          📲 Install App
+        </button>
+      )}
     </Page>
   );
 }

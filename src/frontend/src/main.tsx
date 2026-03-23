@@ -12,6 +12,24 @@ declare global {
   interface BigInt {
     toJSON(): string;
   }
+  interface Window {
+    __deferredInstallPrompt: any;
+    __pwaInstalled: boolean;
+  }
+}
+
+// Register service worker for PWA offline support
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => {
+        console.log("SW registered:", reg.scope);
+      })
+      .catch((err) => {
+        console.warn("SW registration failed:", err);
+      });
+  });
 }
 
 const queryClient = new QueryClient();
