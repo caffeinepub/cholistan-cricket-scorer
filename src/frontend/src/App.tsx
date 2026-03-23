@@ -34,7 +34,10 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import React, { useCallback, useEffect, useState } from "react";
+import { AdminLoginModal } from "./components/AdminLoginModal";
 import AnnouncementSection from "./components/AnnouncementSection";
+import ScoreBoardTemplate from "./components/ScoreBoardTemplate";
+import { useAdminSession } from "./hooks/useAdminSession";
 
 // ──────────────────────────────────────────────────────────────
 // TYPES
@@ -70,7 +73,8 @@ type View =
   | "post-vote"
   | "matches-tab"
   | "community-tab"
-  | "teams-tab";
+  | "teams-tab"
+  | "scoreboard";
 
 interface BatsmanState {
   player: Player;
@@ -550,11 +554,17 @@ interface HomeViewProps {
   onTournament: () => void;
   onFixedSchedule: () => void;
   onLiveMatch: () => void;
+  onScoreBoard: () => void;
   pastMatches: MatchRecord[];
   currentUser?: CcbUser | null;
   myTeamsCount?: number;
   onCreateTeam?: () => void;
   onLogout?: () => void;
+  isAdmin?: boolean;
+  onAdminLogin?: () => void;
+  onAdminLogout?: () => void;
+  myTeams?: MyTeam[];
+  onAddPlayer?: (team: MyTeam) => void;
 }
 
 function HomeView({
@@ -564,11 +574,17 @@ function HomeView({
   onTournament,
   onFixedSchedule,
   onLiveMatch,
+  onScoreBoard,
   pastMatches,
   currentUser,
   myTeamsCount = 0,
   onCreateTeam,
   onLogout,
+  isAdmin = false,
+  onAdminLogin,
+  onAdminLogout,
+  myTeams = [],
+  onAddPlayer,
 }: HomeViewProps) {
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(null);
   const [pwaInstalled, setPwaInstalled] = useState(false);
@@ -604,6 +620,7 @@ function HomeView({
   };
 
   const [showHistory, setShowHistory] = useState(false);
+  const [showAddPlayerPicker, setShowAddPlayerPicker] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
   return (
@@ -615,6 +632,52 @@ function HomeView({
     >
       {/* Header */}
       <header className="pt-10 pb-6 px-6 text-center relative">
+        {/* Admin Mode badge */}
+        {isAdmin && (
+          <div
+            className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold"
+            style={{
+              background: "rgba(0,255,136,0.15)",
+              border: "1px solid rgba(0,255,136,0.5)",
+              color: "#00ff88",
+            }}
+            data-ocid="home.admin_mode.success_state"
+          >
+            🛡️ Admin Mode Active
+          </div>
+        )}
+        {!isAdmin && (
+          <button
+            type="button"
+            data-ocid="home.admin_login.button"
+            onClick={onAdminLogin}
+            title="Admin Login"
+            className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer"
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.15)",
+              color: "rgba(255,255,255,0.4)",
+            }}
+          >
+            🔒 Admin
+          </button>
+        )}
+        {isAdmin && (
+          <button
+            type="button"
+            data-ocid="home.admin_logout.button"
+            onClick={onAdminLogout}
+            title="Logout Admin"
+            className="absolute top-10 left-4 flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs cursor-pointer"
+            style={{
+              background: "transparent",
+              border: "1px solid rgba(255,80,80,0.3)",
+              color: "rgba(255,100,100,0.7)",
+            }}
+          >
+            🔓 Logout
+          </button>
+        )}
         {currentUser && (
           <div className="absolute top-4 right-4 flex items-center gap-2">
             <span className="text-white/60 text-xs font-body truncate max-w-[100px]">
@@ -1042,6 +1105,105 @@ function HomeView({
               LIVE MATCH
             </span>
           </motion.button>
+
+          {/* Score Board Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.scoreboard.secondary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onScoreBoard}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(0,188,212,0.12) 0%, rgba(0,188,212,0.04) 100%)",
+              borderColor: "rgba(0,188,212,0.35)",
+              boxShadow:
+                "0 0 18px rgba(0,188,212,0.2), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "48px",
+                lineHeight: 1,
+                filter:
+                  "drop-shadow(0 0 10px #00BCD4) drop-shadow(0 0 20px #0097A7)",
+              }}
+            >
+              📊
+            </span>
+            <span
+              className="text-sm font-bold tracking-wide text-center leading-tight"
+              style={{ color: "#00BCD4" }}
+            >
+              SCORE BOARD
+            </span>
+          </motion.button>
+
+          {/* Create Team Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.create_team.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={onCreateTeam}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(0,230,118,0.14) 0%, rgba(0,230,118,0.04) 100%)",
+              borderColor: "rgba(0,230,118,0.4)",
+              boxShadow:
+                "0 0 20px rgba(0,230,118,0.22), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "42px",
+                lineHeight: 1,
+                filter:
+                  "drop-shadow(0 0 10px #00E676) drop-shadow(0 0 20px #00aa55)",
+              }}
+            >
+              🏟️
+            </span>
+            <span
+              className="text-sm font-bold tracking-wide text-center leading-tight"
+              style={{ color: "#00E676" }}
+            >
+              CREATE TEAM
+            </span>
+          </motion.button>
+
+          {/* Add Player Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.add_player.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={() => setShowAddPlayerPicker(true)}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(41,121,255,0.14) 0%, rgba(41,121,255,0.04) 100%)",
+              borderColor: "rgba(41,121,255,0.4)",
+              boxShadow:
+                "0 0 20px rgba(41,121,255,0.22), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "42px",
+                lineHeight: 1,
+                filter:
+                  "drop-shadow(0 0 10px #2979FF) drop-shadow(0 0 20px #1565C0)",
+              }}
+            >
+              ➕
+            </span>
+            <span
+              className="text-sm font-bold tracking-wide text-center leading-tight"
+              style={{ color: "#82B1FF" }}
+            >
+              ADD PLAYER
+            </span>
+          </motion.button>
         </div>
         {/* Past Matches Toggle */}
         <button
@@ -1199,6 +1361,151 @@ function HomeView({
         </div>
       </div>
 
+      {/* Add Player Team Picker Dialog */}
+      {showAddPlayerPicker && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 200,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+          }}
+          onClick={() => setShowAddPlayerPicker(false)}
+          onKeyDown={(e) => e.key === "Escape" && setShowAddPlayerPicker(false)}
+        >
+          <div
+            style={{
+              background: "#0a1a0f",
+              border: "1.5px solid rgba(41,121,255,0.5)",
+              borderRadius: "20px",
+              padding: "24px",
+              width: "100%",
+              maxWidth: "360px",
+              boxShadow: "0 0 32px rgba(41,121,255,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <h3
+              style={{
+                color: "#82B1FF",
+                fontWeight: 700,
+                fontSize: "16px",
+                marginBottom: "16px",
+                textAlign: "center",
+              }}
+            >
+              ➕ Add Player — Select Team
+            </h3>
+            {myTeams.length === 0 ? (
+              <div style={{ textAlign: "center" }}>
+                <p
+                  style={{
+                    color: "rgba(255,255,255,0.5)",
+                    fontSize: "14px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  No teams yet. Create a team first.
+                </p>
+                <button
+                  type="button"
+                  data-ocid="home.add_player.create_team.button"
+                  onClick={() => {
+                    setShowAddPlayerPicker(false);
+                    onCreateTeam?.();
+                  }}
+                  style={{
+                    background: "rgba(0,230,118,0.15)",
+                    border: "1.5px solid #00E676",
+                    borderRadius: "12px",
+                    padding: "10px 24px",
+                    color: "#00E676",
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    cursor: "pointer",
+                    width: "100%",
+                  }}
+                >
+                  🏟️ Create Team
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  maxHeight: "320px",
+                  overflowY: "auto",
+                }}
+              >
+                {myTeams.map((team) => (
+                  <button
+                    key={team.id}
+                    type="button"
+                    data-ocid="home.add_player.team.button"
+                    onClick={() => {
+                      setShowAddPlayerPicker(false);
+                      onAddPlayer?.(team);
+                    }}
+                    style={{
+                      background: "rgba(41,121,255,0.1)",
+                      border: "1.5px solid rgba(41,121,255,0.3)",
+                      borderRadius: "12px",
+                      padding: "12px 16px",
+                      color: "#fff",
+                      fontWeight: 600,
+                      fontSize: "14px",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <span style={{ fontSize: "24px" }}>
+                      {team.logo ? "🖼️" : "👥"}
+                    </span>
+                    <span>{team.name}</span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        color: "rgba(255,255,255,0.35)",
+                        fontSize: "12px",
+                      }}
+                    >
+                      {team.players.length} players
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              data-ocid="home.add_player_picker.close_button"
+              onClick={() => setShowAddPlayerPicker(false)}
+              style={{
+                marginTop: "16px",
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: "10px",
+                padding: "8px",
+                color: "rgba(255,255,255,0.5)",
+                fontSize: "13px",
+                cursor: "pointer",
+                width: "100%",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
       <Footer dev />
     </Page>
   );
@@ -7782,10 +8089,12 @@ export default function App() {
   const [matchInfoCards, setMatchInfoCards] = useState<MatchInfoCard[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("home");
 
-  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+  const {
+    isAdmin: isAdminUnlocked,
+    login: adminLogin,
+    logout: adminLogout,
+  } = useAdminSession();
   const [adminPwdDialog, setAdminPwdDialog] = useState(false);
-  const [adminPwdInput, setAdminPwdInput] = useState("");
-  const [adminPwdError, setAdminPwdError] = useState(false);
 
   useEffect(() => {
     // Sync activeTab when view changes via other means
@@ -7950,11 +8259,9 @@ export default function App() {
 
   function handleUnlockAdmin() {
     if (isAdminUnlocked) {
-      setIsAdminUnlocked(false);
+      adminLogout();
       return;
     }
-    setAdminPwdInput("");
-    setAdminPwdError(false);
     setAdminPwdDialog(true);
   }
 
@@ -8121,63 +8428,15 @@ export default function App() {
         </DialogContent>
       </Dialog>
       {/* Admin Password Dialog */}
-      <Dialog
+      <AdminLoginModal
         open={adminPwdDialog}
-        onOpenChange={() => setAdminPwdDialog(false)}
-      >
-        <DialogContent className="bg-card border-primary/30 mx-4 max-w-xs">
-          <DialogHeader>
-            <DialogTitle className="text-primary font-display text-center">
-              ADMIN LOGIN
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <input
-              data-ocid="app.admin_password.input"
-              type="password"
-              value={adminPwdInput}
-              onChange={(e) => {
-                setAdminPwdInput(e.target.value);
-                setAdminPwdError(false);
-              }}
-              onKeyDown={(e) =>
-                e.key === "Enter" &&
-                (() => {
-                  if (adminPwdInput === "Shahzad@99") {
-                    setIsAdminUnlocked(true);
-                    setAdminPwdDialog(false);
-                  } else setAdminPwdError(true);
-                })()
-              }
-              placeholder="Enter admin password"
-              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60"
-            />
-            {adminPwdError && (
-              <p className="text-red-400 text-xs mt-1">Incorrect password</p>
-            )}
-          </div>
-          <DialogFooter>
-            <button
-              type="button"
-              data-ocid="app.admin_password.submit_button"
-              onClick={() => {
-                if (adminPwdInput === "Shahzad@99") {
-                  setIsAdminUnlocked(true);
-                  setAdminPwdDialog(false);
-                } else setAdminPwdError(true);
-              }}
-              className="w-full py-2.5 rounded-lg font-bold text-sm cursor-pointer"
-              style={{
-                background: "rgba(0,255,136,0.2)",
-                color: "#00ff88",
-                border: "1px solid rgba(0,255,136,0.4)",
-              }}
-            >
-              UNLOCK
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onClose={() => setAdminPwdDialog(false)}
+        onLogin={(pwd) => {
+          const ok = adminLogin(pwd);
+          if (ok) setAdminPwdDialog(false);
+          return ok;
+        }}
+      />
 
       <AnimatePresence mode="wait">
         {view === "home" && (
@@ -8189,6 +8448,7 @@ export default function App() {
             onTournament={() => setView("tournament")}
             onFixedSchedule={() => setView("fixed-schedule")}
             onLiveMatch={() => setView("live-match")}
+            onScoreBoard={() => setView("scoreboard")}
             pastMatches={pastMatches}
             currentUser={currentUser}
             myTeamsCount={myTeams.length}
@@ -8199,6 +8459,13 @@ export default function App() {
               } catch {}
               setCurrentUser(null);
               setMyTeams([]);
+            }}
+            isAdmin={isAdminUnlocked}
+            onAdminLogin={handleUnlockAdmin}
+            onAdminLogout={adminLogout}
+            myTeams={myTeams}
+            onAddPlayer={(_team) => {
+              setView("teams-tab");
             }}
           />
         )}
@@ -8288,6 +8555,10 @@ export default function App() {
 
         {view === "live-match" && (
           <LiveMatchView key="live-match" onBack={() => setView("home")} />
+        )}
+
+        {view === "scoreboard" && (
+          <ScoreBoardTemplate key="scoreboard" onBack={() => setView("home")} />
         )}
 
         {view === "post-vote" && (
