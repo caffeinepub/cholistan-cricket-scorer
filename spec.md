@@ -1,50 +1,35 @@
-# CCB SCORING PRO
+# Cholistan Cricket Scorer — Final Production Upgrade
 
 ## Current State
-Full-featured cricket scoring web app (React + TypeScript) with:
-- Dashboard grid of icon cards (Start Match, Team Directory, Edit Teams, Tournament, Live Match, Fixed Schedule, Announcements, Match Prediction, Match Info Cards)
-- Bottom navigation bar (Home, Teams, Matches, Community)
-- Live ball-by-ball scoring with bowler popup, Auto button, editable names
-- Tournament system with pools, round-robin scheduling, leaderboard
-- Community tab with announcements (text + image upload) and Match Prediction voting
-- PDF/PNG save and WhatsApp share on result screen and Match Info Cards
-- Admin controls via lock icon + password `Shahzad@99`
-- PWA manifest, splash screen, HB logo, neon cricket icons
-- All data in localStorage
+- React PWA with 9199-line App.tsx, all features in one file
+- localStorage-only persistence (no cross-device sync in main app data)
+- Backend (Motoko) only handles announcements/media
+- Service worker exists in public/ but is NOT registered in main.tsx
+- Bulk player paste: NOT implemented
+- Analytics dashboard: NOT implemented
+- PNG save uses html-to-image (may have issues on Android Chrome)
 
 ## Requested Changes (Diff)
 
 ### Add
-- Login screen (name + phone number) shown on first open; stored in localStorage; remembered on subsequent visits
-- 20 specific predefined default teams (see list below)
-- "My Teams" section for user-created teams (tied to user's phone number in localStorage)
-- Create Team flow: team name (required) + optional logo upload from gallery
-- Player management inside each team: add/edit/delete players with name + role (Batsman/Bowler/All-Rounder)
-- Match team selection showing two groups: "Default Teams" and "My Teams"
-- Onboarding steps on Home screen (Step 1: Create Team, Step 2: Add Players, Step 3: Start Match)
+- Backend: registerUser(phone, name), getUserCount(), syncTeams(phone, teamsJSON), getTeams(phone), syncMatches(phone, matchesJSON), getMatches(phone), getAnalytics() → {userCount, teamCount, matchCount}
+- Frontend: Service worker registration in main.tsx
+- Frontend: Bulk player paste textarea (in MyTeamsManager add-player section) — each line = one player added to team
+- Frontend: Analytics dashboard (admin-only card on Home, shows: Total Users, Total Teams, Total Matches, Activity)
+- Frontend: Backend sync hooks — on login: pull teams/matches from canister; on save: push to canister in background; fallback to localStorage silently
 
 ### Modify
-- Default teams list replaced with exact 20 teams:
-  1. 118 DNB, 2. 122 DNB, 3. 7 DRB, 4. 14 DRB, 5. 10 DRB,
-  6. 18 DRB, 7. 120 DNB, 8. 4 DRB, 9. 19 DRB, 10. 5 DRB,
-  11. 9 DRB, 12. 121 DNB, 13. 120 DNB, 14. 142 DRB, 15. 119 DNB,
-  16. 20 DRB, 17. 8 DRB, 18. 130 DNB, 19. 94 DB, 20. 92 DB
-- Teams Tab: split into "Default Teams" section and "My Teams" section
-- Start Match team picker: grouped dropdown/list showing Default Teams first, then My Teams
-- Home screen: login-aware (show logged-in user's name in header)
+- Backend main.mo: Add user/team/match storage alongside existing announcements
+- Frontend main.tsx: Add navigator.serviceWorker.register('/sw.js') call
+- Frontend App.tsx: Wire backend sync in handleAddPlayer/handleMyTeams save + login flow; add analytics view; add bulk paste dialog
 
 ### Remove
-- Any teams beyond the 20 listed above from the default list
-- Any hardcoded 24-team references
+- Nothing removed
 
 ## Implementation Plan
-1. Add LoginScreen component -- shown if no user in localStorage; collects name + phone, stores as `ccb_user`
-2. Create `DEFAULT_TEAMS` constant with exactly the 20 teams listed
-3. Add `myTeams` state in localStorage keyed by phone number (`ccb_myteams_{phone}`)
-4. Add CreateTeam modal/flow with team name input and logo upload (FileReader for base64 preview)
-5. Add player management inside each team card (add/edit/delete, name + role selector)
-6. Update Teams Tab to show two sections: Default Teams (read-only, expandable) and My Teams (editable)
-7. Update StartMatch team picker to show grouped options
-8. Add onboarding steps to Home screen hero section
-9. Show logged-in user's name in app header with logout option
-10. Preserve all existing features untouched (scoring, tournament, announcements, voting, PDF/PNG, admin)
+1. Expand Motoko backend with user registration, team sync, match sync, analytics queries
+2. Update main.tsx to register service worker
+3. Add bulk player paste: textarea dialog in TeamsTabView for My Teams section
+4. Add analytics dashboard: new admin-only card + view showing 4 stat cards
+5. Wire ICP backend sync: after login pull data, on changes push to backend (fire-and-forget, localStorage remains primary)
+6. Fix PNG save: ensure html-to-image is called with correct options for Android Chrome (scale, backgroundColor, filter)

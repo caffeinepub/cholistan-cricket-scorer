@@ -59,6 +59,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'deleteMedia' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+  'getAllMatches' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
   'getAnnouncement' : IDL.Func(
       [IDL.Nat],
       [IDL.Opt(AnnouncementData)],
@@ -66,7 +67,15 @@ export const idlService = IDL.Service({
     ),
   'getLikeCount' : IDL.Func([], [IDL.Nat], ['query']),
   'getSeenCount' : IDL.Func([], [IDL.Nat], ['query']),
+  'getTeamByPhone' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Text)], ['query']),
+  'getTeams' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
+  'getTotalMatches' : IDL.Func([], [IDL.Nat], ['query']),
+  'getTotalTeams' : IDL.Func([], [IDL.Nat], ['query']),
+  'getTotalUsers' : IDL.Func([], [IDL.Nat], ['query']),
+  'registerUser' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'saveSeenCount' : IDL.Func([IDL.Nat], [IDL.Nat], []),
+  'syncMatch' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
+  'syncTeam' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
 });
 
 export const idlInitArgs = [];
@@ -123,6 +132,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'deleteMedia' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+    'getAllMatches' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
     'getAnnouncement' : IDL.Func(
         [IDL.Nat],
         [IDL.Opt(AnnouncementData)],
@@ -130,7 +140,15 @@ export const idlFactory = ({ IDL }) => {
       ),
     'getLikeCount' : IDL.Func([], [IDL.Nat], ['query']),
     'getSeenCount' : IDL.Func([], [IDL.Nat], ['query']),
+    'getTeamByPhone' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Text)], ['query']),
+    'getTeams' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
+    'getTotalMatches' : IDL.Func([], [IDL.Nat], ['query']),
+    'getTotalTeams' : IDL.Func([], [IDL.Nat], ['query']),
+    'getTotalUsers' : IDL.Func([], [IDL.Nat], ['query']),
+    'registerUser' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'saveSeenCount' : IDL.Func([IDL.Nat], [IDL.Nat], []),
+    'syncMatch' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
+    'syncTeam' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
   });
 };
 

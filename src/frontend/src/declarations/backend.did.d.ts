@@ -48,10 +48,19 @@ export interface _SERVICE {
     undefined
   >,
   'deleteMedia' : ActorMethod<[string, bigint], undefined>,
+  'getAllMatches' : ActorMethod<[], Array<string>>,
   'getAnnouncement' : ActorMethod<[bigint], [] | [AnnouncementData]>,
   'getLikeCount' : ActorMethod<[], bigint>,
   'getSeenCount' : ActorMethod<[], bigint>,
+  'getTeamByPhone' : ActorMethod<[string], [] | [string]>,
+  'getTeams' : ActorMethod<[], Array<string>>,
+  'getTotalMatches' : ActorMethod<[], bigint>,
+  'getTotalTeams' : ActorMethod<[], bigint>,
+  'getTotalUsers' : ActorMethod<[], bigint>,
+  'registerUser' : ActorMethod<[string, string], undefined>,
   'saveSeenCount' : ActorMethod<[bigint], bigint>,
+  'syncMatch' : ActorMethod<[string, string], bigint>,
+  'syncTeam' : ActorMethod<[string, string], bigint>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

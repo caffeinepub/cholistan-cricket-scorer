@@ -177,3 +177,15 @@ button:active {
     box-shadow: 0 4px 30px rgba(34, 197, 94, 0.9);
   }
 }
+
+/* Dashboard card hover/tap animations */
+.dashboard-card {
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  cursor: pointer;
+}
+.dashboard-card:hover {
+  transform: scale(1.04);
+}
+.dashboard-card:active {
+  transform: scale(0.97);
+}

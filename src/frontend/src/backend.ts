@@ -114,10 +114,19 @@ export interface backendInterface {
     addLike(id: bigint): Promise<bigint>;
     createOrUpdateAnnouncement(password: string, id: bigint, text: string): Promise<void>;
     deleteMedia(password: string, id: bigint): Promise<void>;
+    getAllMatches(): Promise<Array<string>>;
     getAnnouncement(id: bigint): Promise<AnnouncementData | null>;
     getLikeCount(): Promise<bigint>;
     getSeenCount(): Promise<bigint>;
+    getTeamByPhone(phone: string): Promise<string | null>;
+    getTeams(): Promise<Array<string>>;
+    getTotalMatches(): Promise<bigint>;
+    getTotalTeams(): Promise<bigint>;
+    getTotalUsers(): Promise<bigint>;
+    registerUser(phone: string, name: string): Promise<void>;
     saveSeenCount(id: bigint): Promise<bigint>;
+    syncMatch(phone: string, match: string): Promise<bigint>;
+    syncTeam(phone: string, team: string): Promise<bigint>;
 }
 import type { AnnouncementData as _AnnouncementData, ExternalBlob as _ExternalBlob, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -248,6 +257,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getAllMatches(): Promise<Array<string>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllMatches();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllMatches();
+            return result;
+        }
+    }
     async getAnnouncement(arg0: bigint): Promise<AnnouncementData | null> {
         if (this.processError) {
             try {
@@ -290,6 +313,90 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getTeamByPhone(arg0: string): Promise<string | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getTeamByPhone(arg0);
+                return from_candid_opt_n13(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getTeamByPhone(arg0);
+            return from_candid_opt_n13(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getTeams(): Promise<Array<string>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getTeams();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getTeams();
+            return result;
+        }
+    }
+    async getTotalMatches(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getTotalMatches();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getTotalMatches();
+            return result;
+        }
+    }
+    async getTotalTeams(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getTotalTeams();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getTotalTeams();
+            return result;
+        }
+    }
+    async getTotalUsers(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getTotalUsers();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getTotalUsers();
+            return result;
+        }
+    }
+    async registerUser(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.registerUser(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.registerUser(arg0, arg1);
+            return result;
+        }
+    }
     async saveSeenCount(arg0: bigint): Promise<bigint> {
         if (this.processError) {
             try {
@@ -301,6 +408,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.saveSeenCount(arg0);
+            return result;
+        }
+    }
+    async syncMatch(arg0: string, arg1: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.syncMatch(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.syncMatch(arg0, arg1);
+            return result;
+        }
+    }
+    async syncTeam(arg0: string, arg1: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.syncTeam(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.syncTeam(arg0, arg1);
             return result;
         }
     }
@@ -316,6 +451,9 @@ function from_candid__CaffeineStorageRefillResult_n4(_uploadFile: (file: Externa
 }
 async function from_candid_opt_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ExternalBlob]): Promise<ExternalBlob | null> {
     return value.length === 0 ? null : await from_candid_ExternalBlob_n12(_uploadFile, _downloadFile, value[0]);
+}
+function from_candid_opt_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
+    return value.length === 0 ? null : value[0];
 }
 function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [boolean]): boolean | null {
     return value.length === 0 ? null : value[0];

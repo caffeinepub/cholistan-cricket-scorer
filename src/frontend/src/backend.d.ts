@@ -22,8 +22,17 @@ export interface backendInterface {
     addLike(id: bigint): Promise<bigint>;
     createOrUpdateAnnouncement(password: string, id: bigint, text: string): Promise<void>;
     deleteMedia(password: string, id: bigint): Promise<void>;
+    getAllMatches(): Promise<Array<string>>;
     getAnnouncement(id: bigint): Promise<AnnouncementData | null>;
     getLikeCount(): Promise<bigint>;
     getSeenCount(): Promise<bigint>;
+    getTeamByPhone(phone: string): Promise<string | null>;
+    getTeams(): Promise<Array<string>>;
+    getTotalMatches(): Promise<bigint>;
+    getTotalTeams(): Promise<bigint>;
+    getTotalUsers(): Promise<bigint>;
+    registerUser(phone: string, name: string): Promise<void>;
     saveSeenCount(id: bigint): Promise<bigint>;
+    syncMatch(phone: string, match: string): Promise<bigint>;
+    syncTeam(phone: string, team: string): Promise<bigint>;
 }

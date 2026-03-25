@@ -5,7 +5,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-// html2canvas loaded dynamically from CDN
+// html-to-image loaded dynamically from CDN
+async function loadToPng(): Promise<
+  (node: HTMLElement, opts?: Record<string, unknown>) => Promise<string>
+> {
+  try {
+    const mod = await (Function(
+      `return import("https://esm.sh/html-to-image@1.11.11")`,
+    )() as Promise<Record<string, unknown>>);
+    return mod.toPng as (
+      node: HTMLElement,
+      opts?: Record<string, unknown>,
+    ) => Promise<string>;
+  } catch {
+    throw new Error("Could not load html-to-image");
+  }
+}
+// html2canvas loaded dynamically from CDN (for PDF)
 // jsPDF loaded dynamically from CDN
 import {
   ArrowLeft,
@@ -36,7 +52,9 @@ import { AnimatePresence, motion } from "motion/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { AdminLoginModal } from "./components/AdminLoginModal";
 import AnnouncementSection from "./components/AnnouncementSection";
+import { RulesPage } from "./components/RulesPage";
 import ScoreBoardTemplate from "./components/ScoreBoardTemplate";
+import { useActor } from "./hooks/useActor";
 import { useAdminSession } from "./hooks/useAdminSession";
 
 // ──────────────────────────────────────────────────────────────
@@ -74,7 +92,9 @@ type View =
   | "matches-tab"
   | "community-tab"
   | "teams-tab"
-  | "scoreboard";
+  | "scoreboard"
+  | "rules"
+  | "analytics";
 
 interface BatsmanState {
   player: Player;
@@ -544,6 +564,188 @@ function Page({
 }
 
 // ──────────────────────────────────────────────────────────────
+// ANALYTICS DASHBOARD
+// ──────────────────────────────────────────────────────────────
+
+function AnalyticsDashboard({
+  isAdmin,
+  onAdminLogin,
+  onBack,
+  pastMatchesCount,
+}: {
+  isAdmin: boolean;
+  onAdminLogin: () => void;
+  onBack: () => void;
+  pastMatchesCount: number;
+}) {
+  const { actor } = useActor();
+  const [totalUsers, setTotalUsers] = React.useState<number | null>(null);
+  const [totalTeams, setTotalTeams] = React.useState<number | null>(null);
+  const [totalMatches, setTotalMatches] = React.useState<number | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!actor) return;
+    setLoading(true);
+    Promise.all([
+      actor.getTotalUsers().catch(() => BigInt(0)),
+      actor.getTotalTeams().catch(() => BigInt(0)),
+      actor.getTotalMatches().catch(() => BigInt(0)),
+    ])
+      .then(([u, t, m]) => {
+        setTotalUsers(Number(u));
+        setTotalTeams(Number(t));
+        setTotalMatches(Number(m));
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, [actor]);
+
+  if (!isAdmin) {
+    return (
+      <motion.div
+        key="analytics-locked"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        className="min-h-screen flex flex-col items-center justify-center px-4 pb-24"
+        style={{
+          background: "linear-gradient(180deg,#050a0e 0%,#0a1a12 100%)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          className="absolute top-4 left-4 flex items-center gap-2 text-white/60 text-sm bg-white/5 rounded-lg px-3 py-2 cursor-pointer"
+        >
+          <ArrowLeft size={16} /> Back
+        </button>
+        <div className="text-center space-y-4">
+          <div style={{ fontSize: 64 }}>🔒</div>
+          <h2 className="text-xl font-bold text-white">Admin Only</h2>
+          <p className="text-white/50 text-sm">
+            Analytics are restricted to admin access
+          </p>
+          <button
+            type="button"
+            onClick={onAdminLogin}
+            className="px-6 py-3 rounded-xl font-bold text-sm cursor-pointer"
+            style={{
+              background: "linear-gradient(135deg,#00e676,#00b248)",
+              color: "#000",
+            }}
+          >
+            🔓 Login as Admin
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
+
+  const stats = [
+    { label: "Total Users", value: totalUsers, icon: "👥", color: "#00e5ff" },
+    { label: "Total Teams", value: totalTeams, icon: "🏏", color: "#00ff88" },
+    {
+      label: "Total Matches",
+      value: totalMatches,
+      icon: "🏆",
+      color: "#ffd700",
+    },
+    {
+      label: "Local Matches",
+      value: pastMatchesCount,
+      icon: "📱",
+      color: "#ff6b35",
+    },
+  ];
+
+  return (
+    <motion.div
+      key="analytics"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="min-h-screen pb-32 px-4 pt-4"
+      style={{ background: "linear-gradient(180deg,#050a0e 0%,#0a1a12 100%)" }}
+    >
+      <div className="flex items-center gap-3 mb-6">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-2 text-white/60 text-sm bg-white/5 rounded-lg px-3 py-2 cursor-pointer"
+        >
+          <ArrowLeft size={16} /> Back
+        </button>
+        <h1 className="text-xl font-bold text-white">📊 Analytics</h1>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-white/40">
+          Loading analytics...
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            {stats.map((s) => (
+              <div
+                key={s.label}
+                className="rounded-2xl p-4 border"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  borderColor: `${s.color}33`,
+                  boxShadow: `0 0 20px ${s.color}22`,
+                }}
+              >
+                <div className="text-2xl mb-1">{s.icon}</div>
+                <div
+                  className="text-3xl font-bold font-display"
+                  style={{ color: s.color, textShadow: `0 0 12px ${s.color}` }}
+                >
+                  {s.value ?? "—"}
+                </div>
+                <div className="text-xs text-white/50 mt-1">{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="rounded-2xl p-4 border"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              borderColor: "rgba(0,255,136,0.2)",
+            }}
+          >
+            <h3 className="text-sm font-bold text-white/80 mb-3">
+              📈 Activity
+            </h3>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-white/50">Matches on this device</span>
+                <span className="text-primary font-bold">
+                  {pastMatchesCount}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-white/50">Backend synced matches</span>
+                <span style={{ color: "#ffd700" }} className="font-bold">
+                  {totalMatches ?? "—"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-white/50">Registered users</span>
+                <span style={{ color: "#00e5ff" }} className="font-bold">
+                  {totalUsers ?? "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </motion.div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // HOME VIEW
 // ──────────────────────────────────────────────────────────────
 
@@ -565,6 +767,8 @@ interface HomeViewProps {
   onAdminLogout?: () => void;
   myTeams?: MyTeam[];
   onAddPlayer?: (team: MyTeam) => void;
+  onRules?: () => void;
+  onAnalytics?: () => void;
 }
 
 function HomeView({
@@ -585,6 +789,8 @@ function HomeView({
   onAdminLogout,
   myTeams = [],
   onAddPlayer,
+  onRules,
+  onAnalytics,
 }: HomeViewProps) {
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(
     () => (window as any).__deferredInstallPrompt || null,
@@ -646,7 +852,6 @@ function HomeView({
 
   const [showHistory, setShowHistory] = useState(false);
   const [showAddPlayerPicker, setShowAddPlayerPicker] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
 
   return (
     <Page
@@ -656,7 +861,7 @@ function HomeView({
       }}
     >
       {/* Header */}
-      <header className="pt-10 pb-6 px-6 text-center relative">
+      <header className="pt-3 pb-2 px-6 text-center relative">
         {/* Admin Mode badge */}
         {isAdmin && (
           <div
@@ -719,16 +924,16 @@ function HomeView({
             </button>
           </div>
         )}
-        <div className="flex justify-center mb-4">
+        <div className="flex justify-center mb-2">
           <img
-            src="/assets/uploads/1774176112122_1-1.png"
+            src="/assets/uploads/file_000000003a687208b1003ca9aabc1805-Picsart-BackgroundRemover-1.png"
             alt="CCB SCORING PRO"
-            className="w-20 h-20 object-contain"
+            className="w-14 h-14 object-contain"
             style={{ filter: "drop-shadow(0 0 16px #00ff88)" }}
           />
         </div>
         <h1
-          className="font-display font-bold text-primary text-3xl sm:text-4xl tracking-widest uppercase leading-tight"
+          className="font-display font-bold text-primary text-2xl sm:text-3xl tracking-widest uppercase leading-tight"
           style={{ textShadow: "0 0 30px rgba(250,255,0,0.4)" }}
         >
           CHOLISTAN
@@ -1124,16 +1329,101 @@ function HomeView({
                 "0 0 18px rgba(0,188,212,0.2), 0 4px 20px rgba(0,0,0,0.5)",
             }}
           >
-            <span
+            <div
               style={{
-                fontSize: "48px",
-                lineHeight: 1,
                 filter:
                   "drop-shadow(0 0 10px #00BCD4) drop-shadow(0 0 20px #0097A7)",
               }}
             >
-              📊
-            </span>
+              <svg
+                width="56"
+                height="56"
+                viewBox="0 0 56 56"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <title>Score Board</title>
+                <rect
+                  x="4"
+                  y="10"
+                  width="48"
+                  height="36"
+                  rx="5"
+                  stroke="#00BCD4"
+                  strokeWidth="2.5"
+                  fill="none"
+                />
+                <rect
+                  x="4"
+                  y="10"
+                  width="48"
+                  height="10"
+                  rx="5"
+                  fill="rgba(0,188,212,0.15)"
+                />
+                <rect
+                  x="9"
+                  y="14"
+                  width="20"
+                  height="2"
+                  rx="1"
+                  fill="#00BCD4"
+                />
+                <rect
+                  x="9"
+                  y="26"
+                  width="12"
+                  height="2"
+                  rx="1"
+                  fill="#00BCD4"
+                  opacity="0.8"
+                />
+                <rect
+                  x="9"
+                  y="32"
+                  width="16"
+                  height="2"
+                  rx="1"
+                  fill="#00BCD4"
+                  opacity="0.6"
+                />
+                <rect
+                  x="9"
+                  y="38"
+                  width="10"
+                  height="2"
+                  rx="1"
+                  fill="#00BCD4"
+                  opacity="0.4"
+                />
+                <rect
+                  x="32"
+                  y="26"
+                  width="16"
+                  height="2"
+                  rx="1"
+                  fill="#00E676"
+                />
+                <rect
+                  x="32"
+                  y="32"
+                  width="12"
+                  height="2"
+                  rx="1"
+                  fill="#00E676"
+                  opacity="0.7"
+                />
+                <rect
+                  x="32"
+                  y="38"
+                  width="8"
+                  height="2"
+                  rx="1"
+                  fill="#00E676"
+                  opacity="0.5"
+                />
+              </svg>
+            </div>
             <span
               className="text-sm font-bold tracking-wide text-center leading-tight"
               style={{ color: "#00BCD4" }}
@@ -1157,16 +1447,63 @@ function HomeView({
                 "0 0 20px rgba(0,230,118,0.22), 0 4px 20px rgba(0,0,0,0.5)",
             }}
           >
-            <span
+            <div
               style={{
-                fontSize: "42px",
-                lineHeight: 1,
                 filter:
                   "drop-shadow(0 0 10px #00E676) drop-shadow(0 0 20px #00aa55)",
               }}
             >
-              🏟️
-            </span>
+              <svg
+                width="56"
+                height="56"
+                viewBox="0 0 56 56"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <title>Create Team</title>
+                <circle
+                  cx="20"
+                  cy="20"
+                  r="8"
+                  stroke="#00E676"
+                  strokeWidth="2.5"
+                  fill="none"
+                />
+                <path
+                  d="M8 40c0-8 5.4-12 12-12s12 4 12 12"
+                  stroke="#00E676"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+                <circle
+                  cx="40"
+                  cy="28"
+                  r="6"
+                  stroke="#00ff88"
+                  strokeWidth="2"
+                  fill="rgba(0,255,136,0.1)"
+                />
+                <line
+                  x1="40"
+                  y1="24"
+                  x2="40"
+                  y2="32"
+                  stroke="#00ff88"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="36"
+                  y1="28"
+                  x2="44"
+                  y2="28"
+                  stroke="#00ff88"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
             <span
               className="text-sm font-bold tracking-wide text-center leading-tight"
               style={{ color: "#00E676" }}
@@ -1190,16 +1527,63 @@ function HomeView({
                 "0 0 20px rgba(41,121,255,0.22), 0 4px 20px rgba(0,0,0,0.5)",
             }}
           >
-            <span
+            <div
               style={{
-                fontSize: "42px",
-                lineHeight: 1,
                 filter:
                   "drop-shadow(0 0 10px #2979FF) drop-shadow(0 0 20px #1565C0)",
               }}
             >
-              ➕
-            </span>
+              <svg
+                width="56"
+                height="56"
+                viewBox="0 0 56 56"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <title>Add Player</title>
+                <circle
+                  cx="24"
+                  cy="18"
+                  r="9"
+                  stroke="#2979FF"
+                  strokeWidth="2.5"
+                  fill="none"
+                />
+                <path
+                  d="M8 44c0-9 7-14 16-14s16 5 16 14"
+                  stroke="#2979FF"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+                <circle
+                  cx="44"
+                  cy="36"
+                  r="8"
+                  fill="rgba(41,121,255,0.15)"
+                  stroke="#2979FF"
+                  strokeWidth="2"
+                />
+                <line
+                  x1="44"
+                  y1="31"
+                  x2="44"
+                  y2="41"
+                  stroke="#2979FF"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="39"
+                  y1="36"
+                  x2="49"
+                  y2="36"
+                  stroke="#2979FF"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
             <span
               className="text-sm font-bold tracking-wide text-center leading-tight"
               style={{ color: "#82B1FF" }}
@@ -1207,6 +1591,166 @@ function HomeView({
               ADD PLAYER
             </span>
           </motion.button>
+          {/* Rules         </div> Regulations Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.rules.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={() => onRules?.()}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(34,197,94,0.14) 0%, rgba(34,197,94,0.04) 100%)",
+              borderColor: "rgba(34,197,94,0.4)",
+              boxShadow:
+                "0 0 20px rgba(34,197,94,0.22), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div
+              style={{
+                filter:
+                  "drop-shadow(0 0 10px #22c55e) drop-shadow(0 0 20px #16a34a)",
+              }}
+            >
+              <svg width="48" height="48" viewBox="0 0 40 40" fill="none">
+                <title>Rules</title>
+                <rect
+                  x="8"
+                  y="4"
+                  width="24"
+                  height="32"
+                  rx="4"
+                  stroke="#22c55e"
+                  strokeWidth="2"
+                  fill="none"
+                />
+                <line
+                  x1="13"
+                  y1="12"
+                  x2="27"
+                  y2="12"
+                  stroke="#22c55e"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="13"
+                  y1="18"
+                  x2="27"
+                  y2="18"
+                  stroke="#22c55e"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1="13"
+                  y1="24"
+                  x2="22"
+                  y2="24"
+                  stroke="#22c55e"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <circle cx="28" cy="30" r="6" fill="#fbbf24" opacity="0.9" />
+                <text
+                  x="28"
+                  y="34"
+                  textAnchor="middle"
+                  fontSize="8"
+                  fill="#000"
+                  fontWeight="bold"
+                >
+                  R
+                </text>
+              </svg>
+            </div>
+            <span
+              className="text-sm font-bold tracking-wide text-center leading-tight"
+              style={{ color: "#22c55e" }}
+            >
+              RULES
+            </span>
+          </motion.button>
+
+          {/* Analytics Card — Admin Only */}
+          {isAdmin && (
+            <motion.button
+              type="button"
+              data-ocid="home.analytics.primary_button"
+              whileTap={{ scale: 0.94 }}
+              onClick={() => onAnalytics?.()}
+              className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
+              style={{
+                background:
+                  "linear-gradient(135deg, rgba(0,229,255,0.14) 0%, rgba(0,229,255,0.04) 100%)",
+                borderColor: "rgba(0,229,255,0.4)",
+                boxShadow:
+                  "0 0 20px rgba(0,229,255,0.22), 0 4px 20px rgba(0,0,0,0.5)",
+              }}
+            >
+              <div
+                style={{
+                  filter:
+                    "drop-shadow(0 0 10px #00e5ff) drop-shadow(0 0 20px #0088aa)",
+                }}
+              >
+                <svg width="48" height="48" viewBox="0 0 40 40" fill="none">
+                  <title>Analytics</title>
+                  <rect
+                    x="6"
+                    y="28"
+                    width="6"
+                    height="8"
+                    fill="#00e5ff"
+                    opacity="0.9"
+                    rx="1"
+                  />
+                  <rect
+                    x="14"
+                    y="20"
+                    width="6"
+                    height="16"
+                    fill="#00e5ff"
+                    opacity="0.9"
+                    rx="1"
+                  />
+                  <rect
+                    x="22"
+                    y="12"
+                    width="6"
+                    height="24"
+                    fill="#00e5ff"
+                    opacity="0.9"
+                    rx="1"
+                  />
+                  <rect
+                    x="30"
+                    y="6"
+                    width="6"
+                    height="30"
+                    fill="#ffd700"
+                    opacity="0.9"
+                    rx="1"
+                  />
+                  <line
+                    x1="4"
+                    y1="36"
+                    x2="38"
+                    y2="36"
+                    stroke="#00e5ff"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+              <span
+                className="text-sm font-bold tracking-wide text-center leading-tight"
+                style={{ color: "#00e5ff" }}
+              >
+                ANALYTICS
+              </span>
+            </motion.button>
+          )}
         </div>
         {/* Past Matches Toggle */}
         <button
@@ -1243,19 +1787,48 @@ function HomeView({
                       key={m.id}
                       data-ocid={`home.past_matches.item.${i + 1}`}
                       className="bg-card border border-primary/20 rounded-lg p-3"
+                      style={{
+                        wordBreak: "break-word",
+                        overflowWrap: "break-word",
+                        minHeight: "auto",
+                        marginBottom: "4px",
+                      }}
                     >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-white font-body font-semibold text-sm">
+                      <div className="flex items-start gap-2">
+                        <span
+                          style={{
+                            background: "rgba(0,255,136,0.15)",
+                            color: "#00ff88",
+                            borderRadius: "6px",
+                            padding: "2px 6px",
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            flexShrink: 0,
+                            marginTop: "2px",
+                          }}
+                        >
+                          #{pastMatches.length - i}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p
+                            className="text-white font-body font-semibold text-sm"
+                            style={{
+                              wordBreak: "break-word",
+                              lineHeight: "1.4",
+                            }}
+                          >
                             {m.teamA.name} vs {m.teamB.name}
                           </p>
-                          <p className="text-primary text-xs font-body mt-0.5">
+                          <p
+                            className="text-primary text-xs font-body mt-0.5"
+                            style={{ wordBreak: "break-word" }}
+                          >
                             {m.resultText}
                           </p>
+                          <p className="text-white/40 text-xs font-body mt-1">
+                            {m.date}
+                          </p>
                         </div>
-                        <p className="text-white/40 text-xs font-body">
-                          {m.date}
-                        </p>
                       </div>
                     </div>
                   ))}
@@ -1265,104 +1838,6 @@ function HomeView({
           )}
         </AnimatePresence>
       </main>
-
-      {/* Slim Fixed Footer */}
-      <div
-        style={{
-          position: "fixed",
-          bottom: "64px",
-          left: 0,
-          right: 0,
-          zIndex: 49,
-          background: "#0D0D0D",
-          borderTop: "1px solid rgba(250,255,0,0.2)",
-          padding: "10px 16px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "12px",
-        }}
-      >
-        <span
-          style={{
-            color: "rgba(255,255,255,0.4)",
-            fontSize: "11px",
-            letterSpacing: "0.1em",
-          }}
-        >
-          SHARE &amp; DOWNLOAD
-        </span>
-        <div style={{ display: "flex", gap: "10px" }}>
-          <button
-            type="button"
-            data-ocid="home.copy_link.button"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(window.location.href);
-                setLinkCopied(true);
-                setTimeout(() => setLinkCopied(false), 2000);
-              } catch {
-                /* ignore */
-              }
-            }}
-            style={{
-              background: linkCopied ? "rgba(250,255,0,0.15)" : "transparent",
-              border: "1.5px solid rgba(250,255,0,0.4)",
-              borderRadius: "20px",
-              padding: "6px 14px",
-              color: linkCopied ? "#FAFF00" : "rgba(255,255,255,0.75)",
-              fontSize: "12px",
-              fontWeight: 600,
-              cursor: "pointer",
-              letterSpacing: "0.05em",
-            }}
-          >
-            {linkCopied ? "✓ COPIED!" : "📋 COPY LINK"}
-          </button>
-          <button
-            type="button"
-            data-ocid="home.share.button"
-            onClick={async () => {
-              try {
-                if (navigator.share) {
-                  await navigator.share({
-                    title: "CCB SCORING PRO",
-                    text: "Download CCB Live Cricket Scoring App 🏏",
-                    url: window.location.href,
-                  });
-                } else {
-                  window.open(
-                    `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\n${window.location.href}`)}`,
-                    "_blank",
-                  );
-                }
-              } catch {
-                window.open(
-                  `https://wa.me/?text=${encodeURIComponent(`Download CCB SCORING PRO 🏏\n${window.location.href}`)}`,
-                  "_blank",
-                );
-              }
-            }}
-            style={{
-              background: "rgba(250,255,0,0.12)",
-              border: "1.5px solid rgba(250,255,0,0.4)",
-              borderRadius: "20px",
-              padding: "6px 14px",
-              color: "#FAFF00",
-              fontSize: "12px",
-              fontWeight: 600,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "5px",
-              letterSpacing: "0.05em",
-            }}
-          >
-            <Share2 size={12} />
-            SHARE
-          </button>
-        </div>
-      </div>
 
       {/* Add Player Team Picker Dialog */}
       {showAddPlayerPicker && (
@@ -2796,6 +3271,10 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
   const [savingPng, setSavingPng] = useState(false);
   const [savingPdf, setSavingPdf] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [autoSaveModal, setAutoSaveModal] = useState(false);
+  const [autoSaveImageUrl, setAutoSaveImageUrl] = useState<string | null>(null);
+  const [autoSaveGenerating, setAutoSaveGenerating] = useState(false);
+  const autoSaveTriggered = React.useRef(false);
 
   // Auto-create MatchInfoCard when result screen loads
   useEffect(() => {
@@ -2838,6 +3317,24 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
     } catch {}
   }, [match, innings1, innings2, resultText]);
 
+  // Auto-generate scorecard image on result screen mount
+  useEffect(() => {
+    if (autoSaveTriggered.current) return;
+    autoSaveTriggered.current = true;
+
+    const timer = setTimeout(async () => {
+      setAutoSaveGenerating(true);
+      const dataUrl = await generateScorecardImage("scorecard-capture");
+      setAutoSaveGenerating(false);
+      if (dataUrl) {
+        setAutoSaveImageUrl(dataUrl);
+        setAutoSaveModal(true);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   function renderBatsmen(inn: InningsState) {
     const all = [...inn.outBatsmen, ...inn.activeBatsmen];
     return all.map((b) => (
@@ -2877,7 +3374,7 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
     ));
   }
 
-  function handleShare() {
+  async function handleShare() {
     // Build MoM
     const allBatsmen: { name: string; runs: number }[] = [];
     for (const inn of [innings1, innings2].filter(Boolean) as InningsState[]) {
@@ -2914,6 +3411,28 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
     text += "\nScored with CCB Scoring Pro";
 
     const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+
+    // Try to generate image first for Web Share API
+    setSavingPng(true);
+    const dataUrl = await generateScorecardImage("scorecard-capture");
+    setSavingPng(false);
+
+    if (dataUrl && navigator.canShare) {
+      try {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const file = new File([blob], "scorecard.png", { type: "image/png" });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: "CCB Match Report",
+            text,
+          });
+          return;
+        }
+      } catch {}
+    }
+
     if (navigator.share) {
       navigator.share({ title: "CCB Match Report", text }).catch(() => {
         window.open(waUrl, "_blank");
@@ -3186,6 +3705,192 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
         </div>
       </main>
 
+      {/* Auto-Save Result Modal */}
+      {autoSaveModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 99999,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+          }}
+        >
+          <div
+            style={{
+              background: "linear-gradient(135deg, #0d1f0d, #0a1628)",
+              border: "1px solid rgba(0,255,136,0.3)",
+              borderRadius: "20px",
+              padding: "24px",
+              maxWidth: "360px",
+              width: "100%",
+              boxShadow: "0 0 40px rgba(0,255,136,0.2)",
+            }}
+          >
+            <div style={{ textAlign: "center", marginBottom: "16px" }}>
+              <div style={{ fontSize: "2rem" }}>🏆</div>
+              <h3
+                style={{
+                  color: "#00ff88",
+                  fontWeight: 700,
+                  fontSize: "1.1rem",
+                  margin: "8px 0 4px",
+                }}
+              >
+                Match Complete!
+              </h3>
+              <p
+                style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.85rem" }}
+              >
+                {resultText}
+              </p>
+            </div>
+
+            {autoSaveImageUrl && (
+              <img
+                src={autoSaveImageUrl}
+                alt="Scorecard preview"
+                style={{
+                  width: "100%",
+                  borderRadius: "12px",
+                  border: "1px solid rgba(0,255,136,0.2)",
+                  marginBottom: "16px",
+                  maxHeight: "200px",
+                  objectFit: "cover",
+                }}
+              />
+            )}
+
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+            >
+              <button
+                type="button"
+                data-ocid="result.autosave.save_button"
+                onClick={() => {
+                  if (!autoSaveImageUrl) return;
+                  const link = document.createElement("a");
+                  link.download = `scorecard-${match.teamA.name}-vs-${match.teamB.name}.png`;
+                  link.href = autoSaveImageUrl;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                style={{
+                  background: "linear-gradient(135deg, #22c55e, #16a34a)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "12px",
+                  padding: "14px",
+                  fontWeight: 700,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                }}
+              >
+                📸 Save Image
+              </button>
+
+              <button
+                type="button"
+                data-ocid="result.autosave.share_button"
+                onClick={async () => {
+                  setAutoSaveModal(false);
+                  const text = `🏏 ${match.teamA.name} vs ${match.teamB.name}\nResult: ${resultText}\n\nScored with CCB Scoring Pro`;
+                  if (autoSaveImageUrl && navigator.canShare) {
+                    try {
+                      const res = await fetch(autoSaveImageUrl);
+                      const blob = await res.blob();
+                      const file = new File([blob], "scorecard.png", {
+                        type: "image/png",
+                      });
+                      if (navigator.canShare({ files: [file] })) {
+                        await navigator.share({
+                          files: [file],
+                          title: "CCB Match Report",
+                          text,
+                        });
+                        return;
+                      }
+                    } catch {}
+                  }
+                  if (navigator.share) {
+                    navigator
+                      .share({ title: "CCB Match Report", text })
+                      .catch(() => {});
+                  } else {
+                    window.open(
+                      `https://wa.me/?text=${encodeURIComponent(text)}`,
+                      "_blank",
+                    );
+                  }
+                }}
+                style={{
+                  background: "linear-gradient(135deg, #1a73e8, #0d47a1)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "12px",
+                  padding: "14px",
+                  fontWeight: 700,
+                  fontSize: "0.95rem",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "8px",
+                }}
+              >
+                📤 Share Scorecard
+              </button>
+
+              <button
+                type="button"
+                data-ocid="result.autosave.close_button"
+                onClick={() => setAutoSaveModal(false)}
+                style={{
+                  background: "transparent",
+                  color: "rgba(255,255,255,0.5)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: "12px",
+                  padding: "12px",
+                  fontWeight: 600,
+                  fontSize: "0.9rem",
+                  cursor: "pointer",
+                }}
+              >
+                ❌ Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {autoSaveGenerating && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "100px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.8)",
+            color: "#00ff88",
+            padding: "10px 20px",
+            borderRadius: "20px",
+            zIndex: 99998,
+            fontSize: "0.85rem",
+            fontWeight: 600,
+          }}
+        >
+          ⏳ Generating scorecard...
+        </div>
+      )}
+
       <Footer />
     </Page>
   );
@@ -3320,16 +4025,23 @@ function TournamentView({
   tournament,
   onUpdate,
   teams,
+  externalAdminUnlocked = false,
 }: {
   onBack: () => void;
   tournament: Tournament;
   onUpdate: (t: Tournament) => void;
   teams: Team[];
+  externalAdminUnlocked?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<
     "setup" | "schedule" | "standings"
   >("setup");
-  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminUnlocked, setAdminUnlocked] = useState(
+    () => externalAdminUnlocked,
+  );
+  useEffect(() => {
+    if (externalAdminUnlocked) setAdminUnlocked(true);
+  }, [externalAdminUnlocked]);
   const [adminPwdDialog, setAdminPwdDialog] = useState(false);
   const [adminPwdInput, setAdminPwdInput] = useState("");
   const [adminPwdError, setAdminPwdError] = useState(false);
@@ -4609,6 +5321,7 @@ function TournamentView({
 // ──────────────────────────────────────────────────────────────
 
 interface MatchInfoViewProps {
+  externalAdminUnlocked?: boolean;
   onBack: () => void;
   cards: MatchInfoCard[];
   onUpdate: (cards: MatchInfoCard[]) => void;
@@ -4620,8 +5333,14 @@ function MatchInfoView({
   cards,
   onUpdate,
   lastMotm,
+  externalAdminUnlocked = false,
 }: MatchInfoViewProps) {
-  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminUnlocked, setAdminUnlocked] = useState(
+    () => externalAdminUnlocked,
+  );
+  useEffect(() => {
+    if (externalAdminUnlocked) setAdminUnlocked(true);
+  }, [externalAdminUnlocked]);
   const [pwdDialog, setPwdDialog] = useState(false);
   const [pwdInput, setPwdInput] = useState("");
   const [pwdError, setPwdError] = useState(false);
@@ -5208,35 +5927,86 @@ async function getHtml2Canvas() {
   ) => Promise<HTMLCanvasElement>;
 }
 
+// Generate PNG dataUrl without downloading (for share/modal)
+async function generateScorecardImage(
+  elementId: string,
+): Promise<string | null> {
+  try {
+    const el = document.getElementById(elementId);
+    if (!el) return null;
+    const toPng = await loadToPng();
+    return await toPng(el, {
+      quality: 1,
+      pixelRatio: 2,
+      backgroundColor: "#000000",
+      style: { transform: "none" },
+      filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
+    } as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
 async function saveAsPng(
   elementId: string,
   filename: string,
   onStart?: () => void,
   onEnd?: () => void,
-) {
+): Promise<string | null> {
   onStart?.();
   try {
     const el = document.getElementById(elementId);
     if (!el) {
-      alert("Element not found. Please scroll to the scorecard and try again.");
+      alert("Scorecard element not found. Please try again.");
       onEnd?.();
-      return;
+      return null;
     }
-    const h2c = await getHtml2Canvas();
-    const canvas = await h2c(el, {
-      scale: 2,
-      backgroundColor: "#0a0e21",
-      useCORS: true,
-    });
+
+    // Try html-to-image first (most reliable on Android Chrome)
+    let dataUrl: string | null = null;
+    try {
+      const toPng = await loadToPng();
+      dataUrl = await toPng(el, {
+        quality: 1,
+        pixelRatio: 2,
+        backgroundColor: "#000000",
+        style: { transform: "none" },
+        filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
+      } as Record<string, unknown>);
+    } catch {
+      // Fallback: canvas.toBlob approach
+      try {
+        const canvas = document.createElement("canvas");
+        const scale = 3;
+        canvas.width = el.offsetWidth * scale;
+        canvas.height = el.offsetHeight * scale;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.scale(scale, scale);
+          ctx.fillStyle = "#0a0e21";
+          ctx.fillRect(0, 0, el.offsetWidth, el.offsetHeight);
+        }
+        dataUrl = canvas.toDataURL("image/png");
+      } catch {
+        throw new Error("Both capture methods failed");
+      }
+    }
+
+    if (!dataUrl) throw new Error("No image data generated");
+
     const link = document.createElement("a");
     link.download = `${filename}.png`;
-    link.href = canvas.toDataURL("image/png");
+    link.href = dataUrl;
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     onEnd?.();
+    return dataUrl;
   } catch (e) {
     console.error("PNG save failed:", e);
-    alert("❌ Could not save PNG. Try taking a screenshot manually.");
+    alert("Could not save image. Try again or use screenshot.");
     onEnd?.();
+    return null;
   }
 }
 
@@ -5333,7 +6103,7 @@ function LoginScreen({ onLogin }: { onLogin: (user: CcbUser) => void }) {
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <img
-            src="/assets/uploads/1774176112122_1-1.png"
+            src="/assets/uploads/file_000000003a687208b1003ca9aabc1805-Picsart-BackgroundRemover-1.png"
             alt="CCB"
             className="w-20 h-20 object-contain mb-4"
             style={{ filter: "drop-shadow(0 0 16px #00ff88)" }}
@@ -5438,7 +6208,7 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
       transition={{ duration: 0.4 }}
     >
       <img
-        src="/assets/uploads/1774176112122_1-1.png"
+        src="/assets/uploads/file_000000003a687208b1003ca9aabc1805-Picsart-BackgroundRemover-1.png"
         alt="CCB SCORING PRO"
         className="w-28 h-28 object-contain select-none"
         style={{ filter: "drop-shadow(0 0 20px #FACC15)" }}
@@ -7023,6 +7793,8 @@ function TeamsTabView({
   const [myPlayerName, setMyPlayerName] = React.useState("");
   const [myPlayerRole, setMyPlayerRole] =
     React.useState<Player["role"]>("batsman");
+  const [bulkPasteText, setBulkPasteText] = React.useState("");
+  const [addTab, setAddTab] = React.useState<"single" | "bulk">("single");
   const [addDialog, setAddDialog] = React.useState<{ teamId: string } | null>(
     null,
   );
@@ -7735,78 +8507,187 @@ function TeamsTabView({
       </Dialog>
 
       {/* My Team Add Player Dialog */}
-      <Dialog open={!!myAddDialog} onOpenChange={() => setMyAddDialog(null)}>
+      <Dialog
+        open={!!myAddDialog}
+        onOpenChange={() => {
+          setMyAddDialog(null);
+          setAddTab("single");
+          setBulkPasteText("");
+        }}
+      >
         <DialogContent className="bg-card border-primary/30 mx-4 max-w-xs">
           <DialogHeader>
             <DialogTitle className="text-primary font-display text-center">
               ADD PLAYER
             </DialogTitle>
           </DialogHeader>
-          <div className="py-2 space-y-3">
-            <input
-              data-ocid="teams.my.player_name.input"
-              type="text"
-              value={myPlayerName}
-              onChange={(e) => setMyPlayerName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && myAddDialog && myPlayerName.trim()) {
-                  onAddMyTeamPlayer?.(myAddDialog.teamId, {
-                    id: `mp_${Date.now()}`,
-                    name: myPlayerName.trim(),
-                    role: myPlayerRole,
-                  });
-                  setMyAddDialog(null);
-                }
+          {/* Tab switcher */}
+          <div className="flex gap-1 bg-white/5 rounded-lg p-1 mb-2">
+            <button
+              type="button"
+              data-ocid="teams.my.add_single.tab"
+              onClick={() => setAddTab("single")}
+              className="flex-1 py-1.5 rounded-md text-xs font-bold cursor-pointer transition-all"
+              style={{
+                background:
+                  addTab === "single" ? "rgba(0,255,136,0.2)" : "transparent",
+                color:
+                  addTab === "single" ? "#00ff88" : "rgba(255,255,255,0.4)",
               }}
-              placeholder="Player name"
-              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60"
-            />
-            <select
-              data-ocid="teams.my.player_role.select"
-              value={myPlayerRole}
-              onChange={(e) =>
-                setMyPlayerRole(e.target.value as Player["role"])
-              }
-              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60 cursor-pointer"
             >
-              <option value="batsman" style={{ background: "#111" }}>
-                Batsman
-              </option>
-              <option value="bowler" style={{ background: "#111" }}>
-                Bowler
-              </option>
-              <option value="allrounder" style={{ background: "#111" }}>
-                All-Rounder
-              </option>
-            </select>
+              Add Single
+            </button>
+            <button
+              type="button"
+              data-ocid="teams.my.paste_list.tab"
+              onClick={() => setAddTab("bulk")}
+              className="flex-1 py-1.5 rounded-md text-xs font-bold cursor-pointer transition-all"
+              style={{
+                background:
+                  addTab === "bulk" ? "rgba(0,255,136,0.2)" : "transparent",
+                color: addTab === "bulk" ? "#00ff88" : "rgba(255,255,255,0.4)",
+              }}
+            >
+              Paste List
+            </button>
           </div>
-          <DialogFooter className="flex gap-2">
-            <button
-              type="button"
-              data-ocid="teams.my.add_player.cancel_button"
-              onClick={() => setMyAddDialog(null)}
-              className="flex-1 py-2.5 rounded-lg text-sm border border-white/20 text-white/60 cursor-pointer bg-transparent"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              data-ocid="teams.my.add_player.confirm_button"
-              onClick={() => {
-                if (!myAddDialog || !myPlayerName.trim()) return;
-                onAddMyTeamPlayer?.(myAddDialog.teamId, {
-                  id: `mp_${Date.now()}`,
-                  name: myPlayerName.trim(),
-                  role: myPlayerRole,
-                });
-                setMyAddDialog(null);
-              }}
-              className="flex-1 py-2.5 rounded-lg font-bold text-sm cursor-pointer text-black border-0"
-              style={{ background: "linear-gradient(135deg,#00e676,#00b248)" }}
-            >
-              Add
-            </button>
-          </DialogFooter>
+
+          {addTab === "single" ? (
+            <>
+              <div className="py-2 space-y-3">
+                <input
+                  data-ocid="teams.my.player_name.input"
+                  type="text"
+                  value={myPlayerName}
+                  onChange={(e) => setMyPlayerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      myAddDialog &&
+                      myPlayerName.trim()
+                    ) {
+                      onAddMyTeamPlayer?.(myAddDialog.teamId, {
+                        id: `mp_${Date.now()}`,
+                        name: myPlayerName.trim(),
+                        role: myPlayerRole,
+                      });
+                      setMyPlayerName("");
+                      setMyAddDialog(null);
+                    }
+                  }}
+                  placeholder="Player name"
+                  className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60"
+                />
+                <select
+                  data-ocid="teams.my.player_role.select"
+                  value={myPlayerRole}
+                  onChange={(e) =>
+                    setMyPlayerRole(e.target.value as Player["role"])
+                  }
+                  className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60 cursor-pointer"
+                >
+                  <option value="batsman" style={{ background: "#111" }}>
+                    Batsman
+                  </option>
+                  <option value="bowler" style={{ background: "#111" }}>
+                    Bowler
+                  </option>
+                  <option value="allrounder" style={{ background: "#111" }}>
+                    All-Rounder
+                  </option>
+                </select>
+              </div>
+              <DialogFooter className="flex gap-2">
+                <button
+                  type="button"
+                  data-ocid="teams.my.add_player.cancel_button"
+                  onClick={() => setMyAddDialog(null)}
+                  className="flex-1 py-2.5 rounded-lg text-sm border border-white/20 text-white/60 cursor-pointer bg-transparent"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-ocid="teams.my.add_player.confirm_button"
+                  onClick={() => {
+                    if (!myAddDialog || !myPlayerName.trim()) return;
+                    onAddMyTeamPlayer?.(myAddDialog.teamId, {
+                      id: `mp_${Date.now()}`,
+                      name: myPlayerName.trim(),
+                      role: myPlayerRole,
+                    });
+                    setMyPlayerName("");
+                    setMyAddDialog(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-lg font-bold text-sm cursor-pointer text-black border-0"
+                  style={{
+                    background: "linear-gradient(135deg,#00e676,#00b248)",
+                  }}
+                >
+                  Add
+                </button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="py-2 space-y-3">
+                <textarea
+                  data-ocid="teams.my.bulk_paste.textarea"
+                  value={bulkPasteText}
+                  onChange={(e) => setBulkPasteText(e.target.value)}
+                  placeholder={
+                    "Irfan Malik\nFakhar Khan\nRashid Kaka\n(one name per line)"
+                  }
+                  rows={6}
+                  className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60 resize-none"
+                />
+                <p className="text-xs text-white/40">
+                  Each line = one player. Empty lines are skipped.
+                </p>
+              </div>
+              <DialogFooter className="flex gap-2">
+                <button
+                  type="button"
+                  data-ocid="teams.my.bulk_paste.cancel_button"
+                  onClick={() => {
+                    setMyAddDialog(null);
+                    setBulkPasteText("");
+                    setAddTab("single");
+                  }}
+                  className="flex-1 py-2.5 rounded-lg text-sm border border-white/20 text-white/60 cursor-pointer bg-transparent"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-ocid="teams.my.bulk_paste.submit_button"
+                  onClick={() => {
+                    if (!myAddDialog) return;
+                    const lines = bulkPasteText
+                      .split("\n")
+                      .map((l) => l.trim())
+                      .filter(Boolean);
+                    lines.forEach((name, index) => {
+                      onAddMyTeamPlayer?.(myAddDialog.teamId, {
+                        id: `p_${Date.now()}_${index}`,
+                        name,
+                        role: "batsman",
+                      });
+                    });
+                    setBulkPasteText("");
+                    setAddTab("single");
+                    setMyAddDialog(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-lg font-bold text-sm cursor-pointer text-black border-0"
+                  style={{
+                    background: "linear-gradient(135deg,#00e676,#00b248)",
+                  }}
+                >
+                  Add All Players
+                </button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
@@ -7950,14 +8831,39 @@ function MatchesTabView({
                   key={m.id}
                   data-ocid={`matches.history.item.${i + 1}`}
                   className="border border-primary/20 rounded-xl p-3.5"
-                  style={{ background: "rgba(0,255,136,0.03)" }}
+                  style={{
+                    background: "rgba(0,255,136,0.03)",
+                    wordBreak: "break-word",
+                    overflowWrap: "break-word",
+                    marginBottom: "4px",
+                  }}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-white font-semibold text-sm font-body">
+                  <div className="flex items-start gap-2">
+                    <span
+                      style={{
+                        background: "rgba(0,255,136,0.15)",
+                        color: "#00ff88",
+                        borderRadius: "6px",
+                        padding: "2px 6px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        flexShrink: 0,
+                        marginTop: "2px",
+                      }}
+                    >
+                      #{pastMatches.length - i}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p
+                        className="text-white font-semibold text-sm font-body"
+                        style={{ wordBreak: "break-word", lineHeight: "1.4" }}
+                      >
                         {m.teamA.name} vs {m.teamB.name}
                       </p>
-                      <p className="text-primary text-xs font-body mt-0.5 leading-relaxed">
+                      <p
+                        className="text-primary text-xs font-body mt-0.5 leading-relaxed"
+                        style={{ wordBreak: "break-word" }}
+                      >
                         {m.resultText}
                       </p>
                       <p className="text-white/30 text-xs font-body mt-1">
@@ -7972,7 +8878,8 @@ function MatchesTabView({
                           if (confirm("Delete this match record?"))
                             onDeleteMatch(m.id);
                         }}
-                        className="p-1.5 ml-2 text-red-400/50 hover:text-red-400 cursor-pointer border-0 bg-transparent"
+                        className="p-1.5 ml-1 text-red-400/50 hover:text-red-400 cursor-pointer border-0 bg-transparent"
+                        style={{ flexShrink: 0 }}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -8127,6 +9034,7 @@ export default function App() {
     login: adminLogin,
     logout: adminLogout,
   } = useAdminSession();
+  const { actor } = useActor();
   const [adminPwdDialog, setAdminPwdDialog] = useState(false);
 
   useEffect(() => {
@@ -8160,6 +9068,12 @@ export default function App() {
       if (savedMIC) setMatchInfoCards(JSON.parse(savedMIC));
     } catch {}
   }, []);
+
+  // Sync myTeams to backend whenever they change
+  useEffect(() => {
+    if (!actor || !currentUser) return;
+    actor.syncTeam(currentUser.phone, JSON.stringify(myTeams)).catch(() => {});
+  }, [myTeams, actor, currentUser]);
 
   function handleUpdateMatchInfoCards(cards: MatchInfoCard[]) {
     setMatchInfoCards(cards);
@@ -8281,12 +9195,39 @@ export default function App() {
 
   function handleLogin(user: CcbUser) {
     setCurrentUser(user);
-    // Load this user's teams
+    // Load this user's teams from localStorage
     try {
       const saved = localStorage.getItem(`ccb_myteams_${user.phone}`);
       setMyTeams(saved ? JSON.parse(saved) : []);
     } catch {
       setMyTeams([]);
+    }
+    // Backend: register user + pull synced teams (fire and forget)
+    if (actor) {
+      actor.registerUser(user.phone, user.name).catch(() => {});
+      actor
+        .getTeamByPhone(user.phone)
+        .then((json) => {
+          if (json && json !== "[]") {
+            try {
+              const synced: MyTeam[] = JSON.parse(json);
+              setMyTeams((prev) => {
+                const existingIds = new Set(prev.map((t) => t.id));
+                const newTeams = synced.filter((t) => !existingIds.has(t.id));
+                if (newTeams.length === 0) return prev;
+                const merged = [...prev, ...newTeams];
+                try {
+                  localStorage.setItem(
+                    `ccb_myteams_${user.phone}`,
+                    JSON.stringify(merged),
+                  );
+                } catch {}
+                return merged;
+              });
+            } catch {}
+          }
+        })
+        .catch(() => {});
     }
   }
 
@@ -8349,6 +9290,12 @@ export default function App() {
     try {
       localStorage.setItem("ccb_past_matches", JSON.stringify(updated));
     } catch {}
+    // Backend sync match (fire and forget)
+    if (actor) {
+      actor
+        .syncMatch(currentUser?.phone ?? "anon", JSON.stringify(record))
+        .catch(() => {});
+    }
     setCurrentMatch(record);
     setView("result");
   }
@@ -8500,6 +9447,8 @@ export default function App() {
             onAddPlayer={(_team) => {
               setView("teams-tab");
             }}
+            onRules={() => setView("rules")}
+            onAnalytics={() => setView("analytics")}
           />
         )}
 
@@ -8558,6 +9507,7 @@ export default function App() {
             tournament={tournament}
             onUpdate={handleUpdateTournament}
             teams={teams}
+            externalAdminUnlocked={isAdminUnlocked}
           />
         )}
 
@@ -8568,6 +9518,7 @@ export default function App() {
             cards={matchInfoCards}
             onUpdate={handleUpdateMatchInfoCards}
             lastMotm={lastMotm}
+            externalAdminUnlocked={isAdminUnlocked}
           />
         )}
 
@@ -8635,6 +9586,25 @@ export default function App() {
         {view === "community-tab" && (
           <CommunityTabView key="community-tab" teams={teams} />
         )}
+
+        {view === "rules" && (
+          <RulesPage
+            key="rules"
+            isAdmin={isAdminUnlocked}
+            onBack={() => setView("home")}
+            onAdminLogin={handleUnlockAdmin}
+          />
+        )}
+
+        {view === "analytics" && (
+          <AnalyticsDashboard
+            key="analytics"
+            isAdmin={isAdminUnlocked}
+            onAdminLogin={handleUnlockAdmin}
+            onBack={() => setView("home")}
+            pastMatchesCount={pastMatches.length}
+          />
+        )}
       </AnimatePresence>
 
       {/* Fixed Bottom Navigation — hidden during scoring */}
@@ -8651,6 +9621,28 @@ export default function App() {
         }}
         onClose={() => setShowEditTeams(false)}
       />
+      {/* Creator Branding Footer */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 9999,
+          textAlign: "center",
+          fontSize: "11px",
+          opacity: 0.6,
+          color: "#ffffff",
+          paddingBottom: "calc(56px + 4px)",
+          paddingTop: "4px",
+          paddingLeft: "12px",
+          paddingRight: "12px",
+          pointerEvents: "none",
+          letterSpacing: "0.02em",
+        }}
+      >
+        Created by Shahzad Sultan | 0341 889 0677
+      </div>
     </div>
   );
 }

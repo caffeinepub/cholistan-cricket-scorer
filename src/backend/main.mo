@@ -6,17 +6,26 @@ import Nat "mo:core/Nat";
 import Iter "mo:core/Iter";
 import VarArray "mo:core/VarArray";
 
-
-
 actor {
   include MixinStorage();
 
-  type AnnouncementData = { text : Text; image : ?Storage.ExternalBlob };
+  type User = {
+    name : Text;
+    phone : Text;
+  };
+
+  type AnnouncementData = {
+    text : Text;
+    image : ?Storage.ExternalBlob;
+  };
 
   let adminPassword = "Shahzad@99";
   let announcements = Map.empty<Int, AnnouncementData>();
+  let users = Map.empty<Text, User>();
+  let teams = Map.empty<Text, Text>();
   let seenCounts = Map.empty<Nat, Bool>();
   let likes = Map.empty<Nat, Bool>();
+  let matches = Map.empty<Nat, Text>();
 
   public query ({ caller }) func getAnnouncement(id : Nat) : async ?AnnouncementData {
     announcements.get(id);
@@ -62,5 +71,42 @@ actor {
     };
     announcements.add(id, { text; image = existingImage });
   };
-};
 
+  public shared ({ caller }) func registerUser(phone : Text, name : Text) : async () {
+    users.add(phone, { name; phone });
+  };
+
+  public query ({ caller }) func getTeamByPhone(phone : Text) : async ?Text {
+    teams.get(phone);
+  };
+
+  public shared ({ caller }) func syncTeam(phone : Text, team : Text) : async Nat {
+    teams.add(phone, team);
+    teams.size();
+  };
+
+  public shared ({ caller }) func syncMatch(phone : Text, match : Text) : async Nat {
+    matches.add(matches.size(), match);
+    matches.size();
+  };
+
+  public query ({ caller }) func getTeams() : async [Text] {
+    teams.values().toArray();
+  };
+
+  public query ({ caller }) func getAllMatches() : async [Text] {
+    matches.values().toArray();
+  };
+
+  public query ({ caller }) func getTotalUsers() : async Nat {
+    users.size();
+  };
+
+  public query ({ caller }) func getTotalTeams() : async Nat {
+    teams.size();
+  };
+
+  public query ({ caller }) func getTotalMatches() : async Nat {
+    matches.size();
+  };
+};
