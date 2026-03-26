@@ -13,6 +13,10 @@ interface RulesPageProps {
   isAdmin: boolean;
   onBack: () => void;
   onAdminLogin: () => void;
+  actor?: {
+    syncRules: (phone: string, json: string) => Promise<unknown>;
+  } | null;
+  userPhone?: string | null;
 }
 
 const DEFAULT_RULES: Rule[] = [
@@ -36,9 +40,19 @@ function loadRules(): Rule[] {
   return DEFAULT_RULES;
 }
 
-function saveRules(rules: Rule[]) {
+function saveRules(
+  rules: Rule[],
+  actor?: {
+    syncRules: (phone: string, json: string) => Promise<unknown>;
+  } | null,
+  userPhone?: string | null,
+) {
   try {
-    localStorage.setItem(RULES_KEY, JSON.stringify(rules));
+    const json = JSON.stringify(rules);
+    localStorage.setItem(RULES_KEY, json);
+    if (actor && userPhone) {
+      actor.syncRules(userPhone, json).catch(() => {});
+    }
   } catch {}
 }
 
@@ -72,7 +86,13 @@ function saveLikeCounts(counts: Record<string, number>) {
   } catch {}
 }
 
-export function RulesPage({ isAdmin, onBack, onAdminLogin }: RulesPageProps) {
+export function RulesPage({
+  isAdmin,
+  onBack,
+  onAdminLogin,
+  actor,
+  userPhone,
+}: RulesPageProps) {
   const [rules, setRules] = useState<Rule[]>(() => loadRules());
   const [myLikes, setMyLikes] = useState<Record<string, boolean>>(() =>
     loadLikes(),
@@ -93,8 +113,8 @@ export function RulesPage({ isAdmin, onBack, onAdminLogin }: RulesPageProps) {
   const [editDesc, setEditDesc] = useState("");
 
   useEffect(() => {
-    saveRules(rules);
-  }, [rules]);
+    saveRules(rules, actor, userPhone);
+  }, [rules, actor, userPhone]);
 
   const handleAddRule = () => {
     if (!addTitle.trim()) {

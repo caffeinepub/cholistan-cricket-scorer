@@ -127,6 +127,8 @@ export interface backendInterface {
     saveSeenCount(id: bigint): Promise<bigint>;
     syncMatch(phone: string, match: string): Promise<bigint>;
     syncTeam(phone: string, team: string): Promise<bigint>;
+    syncRules(phone: string, rulesJson: string): Promise<bigint>;
+    getRulesByPhone(phone: string): Promise<string | null>;
 }
 import type { AnnouncementData as _AnnouncementData, ExternalBlob as _ExternalBlob, _CaffeineStorageRefillInformation as __CaffeineStorageRefillInformation, _CaffeineStorageRefillResult as __CaffeineStorageRefillResult } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -439,7 +441,36 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+
+    async syncRules(arg0: string, arg1: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).syncRules(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error('unreachable');
+            }
+        } else {
+            return await (this.actor as any).syncRules(arg0, arg1);
+        }
+    }
+    async getRulesByPhone(arg0: string): Promise<string | null> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).getRulesByPhone(arg0);
+                return Array.isArray(result) ? (result[0] ?? null) : (result ?? null);
+            } catch (e) {
+                this.processError(e);
+                throw new Error('unreachable');
+            }
+        } else {
+            const result = await (this.actor as any).getRulesByPhone(arg0);
+            return Array.isArray(result) ? (result[0] ?? null) : (result ?? null);
+        }
+    }
 }
+
 async function from_candid_AnnouncementData_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _AnnouncementData): Promise<AnnouncementData> {
     return await from_candid_record_n10(_uploadFile, _downloadFile, value);
 }

@@ -35,4 +35,6 @@ export interface backendInterface {
     saveSeenCount(id: bigint): Promise<bigint>;
     syncMatch(phone: string, match: string): Promise<bigint>;
     syncTeam(phone: string, team: string): Promise<bigint>;
+    syncRules(phone: string, rulesJson: string): Promise<bigint>;
+    getRulesByPhone(phone: string): Promise<string | null>;
 }

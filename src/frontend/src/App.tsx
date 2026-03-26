@@ -7795,6 +7795,11 @@ function TeamsTabView({
     React.useState<Player["role"]>("batsman");
   const [bulkPasteText, setBulkPasteText] = React.useState("");
   const [addTab, setAddTab] = React.useState<"single" | "bulk">("single");
+  const [defaultBulkText, setDefaultBulkText] = React.useState("");
+  const [defaultAddTab, setDefaultAddTab] = React.useState<"single" | "bulk">(
+    "single",
+  );
+  const [bulkSuccessMsg, setBulkSuccessMsg] = React.useState("");
   const [addDialog, setAddDialog] = React.useState<{ teamId: string } | null>(
     null,
   );
@@ -8375,68 +8380,215 @@ function TeamsTabView({
       </main>
 
       {/* Add Player Dialog */}
-      <Dialog open={!!addDialog} onOpenChange={() => setAddDialog(null)}>
+      <Dialog
+        open={!!addDialog}
+        onOpenChange={() => {
+          setAddDialog(null);
+          setDefaultAddTab("single");
+          setDefaultBulkText("");
+          setBulkSuccessMsg("");
+        }}
+      >
         <DialogContent className="bg-card border-primary/30 mx-4 max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-primary font-display">
+            <DialogTitle className="text-primary font-display text-center">
               ADD PLAYER
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 pt-2">
-            <input
-              data-ocid="teams.add_player.input"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              placeholder="Player name"
-              className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-primary/60"
-            />
-            <div className="flex gap-2">
-              {(["batsman", "bowler", "allrounder"] as const).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setPlayerRole(r)}
-                  className="flex-1 py-2 rounded-lg text-xs font-bold cursor-pointer border transition-all"
-                  style={{
-                    background:
-                      playerRole === r ? `${roleColors[r]}20` : "transparent",
-                    borderColor:
-                      playerRole === r
-                        ? roleColors[r]
-                        : "rgba(255,255,255,0.2)",
-                    color:
-                      playerRole === r
-                        ? roleColors[r]
-                        : "rgba(255,255,255,0.5)",
-                  }}
-                >
-                  {roleLabels[r]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <DialogFooter className="flex gap-2 pt-2">
+          {/* Tab switcher */}
+          <div className="flex gap-1 bg-white/5 rounded-lg p-1 mb-2">
             <button
               type="button"
-              onClick={() => setAddDialog(null)}
-              className="flex-1 py-2 rounded-lg border border-white/20 text-white/60 text-sm cursor-pointer bg-transparent"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              data-ocid="teams.add_player.submit_button"
-              onClick={handleSaveAdd}
-              className="flex-1 py-2 rounded-lg text-sm font-bold cursor-pointer"
+              onClick={() => setDefaultAddTab("single")}
+              className="flex-1 py-1.5 rounded-md text-xs font-bold cursor-pointer transition-all"
               style={{
-                background: "rgba(0,255,136,0.2)",
-                color: "#00ff88",
-                border: "1px solid rgba(0,255,136,0.4)",
+                background:
+                  defaultAddTab === "single"
+                    ? "rgba(0,255,136,0.2)"
+                    : "transparent",
+                color:
+                  defaultAddTab === "single"
+                    ? "#00ff88"
+                    : "rgba(255,255,255,0.4)",
               }}
             >
-              ADD
+              Single Player
             </button>
-          </DialogFooter>
+            <button
+              type="button"
+              onClick={() => setDefaultAddTab("bulk")}
+              className="flex-1 py-1.5 rounded-md text-xs font-bold cursor-pointer transition-all"
+              style={{
+                background:
+                  defaultAddTab === "bulk"
+                    ? "rgba(0,255,136,0.2)"
+                    : "transparent",
+                color:
+                  defaultAddTab === "bulk"
+                    ? "#00ff88"
+                    : "rgba(255,255,255,0.4)",
+              }}
+            >
+              Bulk Paste
+            </button>
+          </div>
+
+          {bulkSuccessMsg ? (
+            <div
+              className="py-2 text-center text-sm font-bold"
+              style={{ color: "#00ff88" }}
+            >
+              ✅ {bulkSuccessMsg}
+            </div>
+          ) : null}
+
+          {defaultAddTab === "single" ? (
+            <>
+              <div className="space-y-3 pt-2">
+                <input
+                  data-ocid="teams.add_player.input"
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  placeholder="Player name"
+                  className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-primary/60"
+                />
+                <div className="flex gap-2">
+                  {(["batsman", "bowler", "allrounder"] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setPlayerRole(r)}
+                      className="flex-1 py-2 rounded-lg text-xs font-bold cursor-pointer border transition-all"
+                      style={{
+                        background:
+                          playerRole === r
+                            ? `${roleColors[r]}20`
+                            : "transparent",
+                        borderColor:
+                          playerRole === r
+                            ? roleColors[r]
+                            : "rgba(255,255,255,0.2)",
+                        color:
+                          playerRole === r
+                            ? roleColors[r]
+                            : "rgba(255,255,255,0.5)",
+                      }}
+                    >
+                      {roleLabels[r]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <DialogFooter className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAddDialog(null)}
+                  className="flex-1 py-2 rounded-lg border border-white/20 text-white/60 text-sm cursor-pointer bg-transparent"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-ocid="teams.add_player.submit_button"
+                  onClick={handleSaveAdd}
+                  className="flex-1 py-2 rounded-lg text-sm font-bold cursor-pointer"
+                  style={{
+                    background: "rgba(0,255,136,0.2)",
+                    color: "#00ff88",
+                    border: "1px solid rgba(0,255,136,0.4)",
+                  }}
+                >
+                  ADD
+                </button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="py-2 space-y-3">
+                <textarea
+                  data-ocid="teams.default.bulk_paste.textarea"
+                  value={defaultBulkText}
+                  onChange={(e) => setDefaultBulkText(e.target.value)}
+                  placeholder={
+                    "Paste player names (one per line)\nExample:\n\nIrfan Malik\nFakhar Khan\nRashid Malik\nSajjad Khan"
+                  }
+                  rows={7}
+                  className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60 resize-none"
+                  style={{ width: "100%" }}
+                />
+                <p className="text-xs text-white/40">
+                  Each line = one player. Duplicates are skipped automatically.
+                </p>
+              </div>
+              <DialogFooter className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddDialog(null);
+                    setDefaultBulkText("");
+                    setDefaultAddTab("single");
+                    setBulkSuccessMsg("");
+                  }}
+                  className="flex-1 py-2.5 rounded-lg text-sm border border-white/20 text-white/60 cursor-pointer bg-transparent"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  data-ocid="teams.default.bulk_paste.submit_button"
+                  onClick={() => {
+                    if (!addDialog) return;
+                    const currentTeam = teams.find(
+                      (t) => t.id === addDialog.teamId,
+                    );
+                    const existingNames = new Set(
+                      (currentTeam?.players ?? []).map((p) =>
+                        p.name.toLowerCase().trim(),
+                      ),
+                    );
+                    const lines = defaultBulkText
+                      .split("\n")
+                      .map((l) => l.trim())
+                      .filter(Boolean);
+                    let added = 0;
+                    lines.forEach((name, index) => {
+                      if (!existingNames.has(name.toLowerCase())) {
+                        onAddPlayer(addDialog.teamId, {
+                          id: `p_${Date.now()}_${index}`,
+                          name,
+                          role: "batsman",
+                        });
+                        existingNames.add(name.toLowerCase());
+                        added++;
+                      }
+                    });
+                    setDefaultBulkText("");
+                    if (added > 0) {
+                      setBulkSuccessMsg(
+                        `${added} player${added > 1 ? "s" : ""} added successfully`,
+                      );
+                      setTimeout(() => {
+                        setAddDialog(null);
+                        setDefaultAddTab("single");
+                        setBulkSuccessMsg("");
+                      }, 1500);
+                    } else {
+                      setBulkSuccessMsg(
+                        "No new players to add (all already exist)",
+                      );
+                      setTimeout(() => setBulkSuccessMsg(""), 2000);
+                    }
+                  }}
+                  className="flex-1 py-2.5 rounded-lg font-bold text-sm cursor-pointer text-black border-0"
+                  style={{
+                    background: "linear-gradient(135deg,#00e676,#00b248)",
+                  }}
+                >
+                  Add Players
+                </button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -8535,7 +8687,7 @@ function TeamsTabView({
                   addTab === "single" ? "#00ff88" : "rgba(255,255,255,0.4)",
               }}
             >
-              Add Single
+              Single Player
             </button>
             <button
               type="button"
@@ -8548,9 +8700,18 @@ function TeamsTabView({
                 color: addTab === "bulk" ? "#00ff88" : "rgba(255,255,255,0.4)",
               }}
             >
-              Paste List
+              Bulk Paste
             </button>
           </div>
+
+          {bulkSuccessMsg ? (
+            <div
+              className="py-2 text-center text-sm font-bold"
+              style={{ color: "#00ff88" }}
+            >
+              ✅ {bulkSuccessMsg}
+            </div>
+          ) : null}
 
           {addTab === "single" ? (
             <>
@@ -8636,7 +8797,7 @@ function TeamsTabView({
                   value={bulkPasteText}
                   onChange={(e) => setBulkPasteText(e.target.value)}
                   placeholder={
-                    "Irfan Malik\nFakhar Khan\nRashid Kaka\n(one name per line)"
+                    "Paste player names (one per line)\nExample:\n\nIrfan Malik\nFakhar Khan\nRashid Malik\nSajjad Khan"
                   }
                   rows={6}
                   className="w-full bg-background border border-primary/30 rounded-lg px-3 py-2.5 text-white text-sm outline-none focus:border-primary/60 resize-none"
@@ -8663,27 +8824,53 @@ function TeamsTabView({
                   data-ocid="teams.my.bulk_paste.submit_button"
                   onClick={() => {
                     if (!myAddDialog) return;
+                    const currentTeam = myTeams.find(
+                      (t) => t.id === myAddDialog.teamId,
+                    );
+                    const existingNames = new Set(
+                      (currentTeam?.players ?? []).map((p) =>
+                        p.name.toLowerCase().trim(),
+                      ),
+                    );
                     const lines = bulkPasteText
                       .split("\n")
                       .map((l) => l.trim())
                       .filter(Boolean);
+                    let added = 0;
                     lines.forEach((name, index) => {
-                      onAddMyTeamPlayer?.(myAddDialog.teamId, {
-                        id: `p_${Date.now()}_${index}`,
-                        name,
-                        role: "batsman",
-                      });
+                      if (!existingNames.has(name.toLowerCase())) {
+                        onAddMyTeamPlayer?.(myAddDialog.teamId, {
+                          id: `p_${Date.now()}_${index}`,
+                          name,
+                          role: "batsman",
+                        });
+                        existingNames.add(name.toLowerCase());
+                        added++;
+                      }
                     });
                     setBulkPasteText("");
-                    setAddTab("single");
-                    setMyAddDialog(null);
+                    if (added > 0) {
+                      setBulkSuccessMsg(
+                        `${added} player${added > 1 ? "s" : ""} added successfully`,
+                      );
+                      setTimeout(() => {
+                        setAddTab("single");
+                        setMyAddDialog(null);
+                        setBulkSuccessMsg("");
+                      }, 1500);
+                    } else {
+                      setBulkSuccessMsg(
+                        "No new players to add (all already exist)",
+                      );
+                      setTimeout(() => setBulkSuccessMsg(""), 2000);
+                    }
                   }}
                   className="flex-1 py-2.5 rounded-lg font-bold text-sm cursor-pointer text-black border-0"
                   style={{
                     background: "linear-gradient(135deg,#00e676,#00b248)",
                   }}
                 >
-                  Add All Players
+                  Add Players
                 </button>
               </DialogFooter>
             </>
@@ -9059,6 +9246,26 @@ export default function App() {
   }, [view]);
 
   useEffect(() => {
+    // One-time backup of all ccb_ data
+    const BACKUP_VERSION = "v66";
+    if (!localStorage.getItem(`ccb_backup_${BACKUP_VERSION}_done`)) {
+      try {
+        const keysToBackup: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k?.startsWith("ccb_") && !k.startsWith("ccb_backup_")) {
+            keysToBackup.push(k);
+          }
+        }
+        for (const k of keysToBackup) {
+          const val = localStorage.getItem(k);
+          if (val !== null) {
+            localStorage.setItem(`ccb_backup_${BACKUP_VERSION}_${k}`, val);
+          }
+        }
+        localStorage.setItem(`ccb_backup_${BACKUP_VERSION}_done`, "true");
+      } catch {}
+    }
     try {
       const saved = localStorage.getItem("ccb_past_matches");
       if (saved) setPastMatches(JSON.parse(saved));
@@ -9224,6 +9431,37 @@ export default function App() {
                 } catch {}
                 return merged;
               });
+            } catch {}
+          }
+        })
+        .catch(() => {});
+      // Pull synced rules on login
+      actor
+        .getRulesByPhone(user.phone)
+        .then((json) => {
+          if (json && json !== "[]") {
+            try {
+              const synced = JSON.parse(json);
+              const existing = localStorage.getItem("ccb_rules");
+              if (!existing) {
+                localStorage.setItem("ccb_rules", json);
+              } else {
+                const localRules = JSON.parse(existing) as Array<{
+                  id: string;
+                }>;
+                const existingIds = new Set(
+                  localRules.map((r: { id: string }) => r.id),
+                );
+                const newRules = synced.filter(
+                  (r: { id: string }) => !existingIds.has(r.id),
+                );
+                if (newRules.length > 0) {
+                  localStorage.setItem(
+                    "ccb_rules",
+                    JSON.stringify([...localRules, ...newRules]),
+                  );
+                }
+              }
             } catch {}
           }
         })
@@ -9593,6 +9831,8 @@ export default function App() {
             isAdmin={isAdminUnlocked}
             onBack={() => setView("home")}
             onAdminLogin={handleUnlockAdmin}
+            actor={actor}
+            userPhone={currentUser?.phone}
           />
         )}
 

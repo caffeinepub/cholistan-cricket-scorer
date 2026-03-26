@@ -23,6 +23,7 @@ actor {
   let announcements = Map.empty<Int, AnnouncementData>();
   let users = Map.empty<Text, User>();
   let teams = Map.empty<Text, Text>();
+  let rulesStore = Map.empty<Text, Text>();
   let seenCounts = Map.empty<Nat, Bool>();
   let likes = Map.empty<Nat, Bool>();
   let matches = Map.empty<Nat, Text>();
@@ -108,5 +109,15 @@ actor {
 
   public query ({ caller }) func getTotalMatches() : async Nat {
     matches.size();
+  };
+
+  // Rules sync
+  public shared ({ caller }) func syncRules(phone : Text, rulesJson : Text) : async Nat {
+    rulesStore.add(phone, rulesJson);
+    rulesStore.size();
+  };
+
+  public query ({ caller }) func getRulesByPhone(phone : Text) : async ?Text {
+    rulesStore.get(phone);
   };
 };
