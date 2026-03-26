@@ -5,21 +5,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-// html-to-image loaded dynamically from CDN
+import { toPng as htmlToPng } from "html-to-image";
+// html-to-image loaded as npm package (reliable on Android Chrome)
 async function loadToPng(): Promise<
   (node: HTMLElement, opts?: Record<string, unknown>) => Promise<string>
 > {
-  try {
-    const mod = await (Function(
-      `return import("https://esm.sh/html-to-image@1.11.11")`,
-    )() as Promise<Record<string, unknown>>);
-    return mod.toPng as (
-      node: HTMLElement,
-      opts?: Record<string, unknown>,
-    ) => Promise<string>;
-  } catch {
-    throw new Error("Could not load html-to-image");
-  }
+  return htmlToPng as (
+    node: HTMLElement,
+    opts?: Record<string, unknown>,
+  ) => Promise<string>;
 }
 // html2canvas loaded dynamically from CDN (for PDF)
 // jsPDF loaded dynamically from CDN
@@ -94,7 +88,8 @@ type View =
   | "teams-tab"
   | "scoreboard"
   | "rules"
-  | "analytics";
+  | "analytics"
+  | "player-leaderboard";
 
 interface BatsmanState {
   player: Player;
@@ -185,12 +180,29 @@ interface InningsState {
 interface MatchRecord {
   id: string;
   date: string;
+  time?: string;
   teamA: Team;
   teamB: Team;
   totalOvers: number;
   innings1: InningsState;
   innings2?: InningsState;
   resultText?: string;
+  manOfTheMatch?: {
+    name: string;
+    teamName: string;
+    runs: number;
+    wickets: number;
+    photo?: string;
+  };
+}
+
+interface PlayerStats {
+  key: string;
+  name: string;
+  teamName: string;
+  totalRuns: number;
+  totalWickets: number;
+  matchesPlayed: number;
 }
 
 interface WicketDialog {
@@ -564,6 +576,74 @@ function Page({
 }
 
 // ──────────────────────────────────────────────────────────────
+// PLAYER STATS HELPERS
+// ──────────────────────────────────────────────────────────────
+
+function loadPlayerStats(): PlayerStats[] {
+  try {
+    const saved = localStorage.getItem("ccb_player_stats");
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePlayerStats(stats: PlayerStats[]): void {
+  try {
+    localStorage.setItem("ccb_player_stats", JSON.stringify(stats));
+  } catch {}
+}
+
+function updatePlayerStatsAfterMatch(record: MatchRecord): void {
+  const stats = loadPlayerStats();
+  const statsMap = new Map<string, PlayerStats>(stats.map((s) => [s.key, s]));
+  const participatingKeys = new Set<string>();
+
+  for (const inn of [record.innings1, record.innings2].filter(
+    Boolean,
+  ) as InningsState[]) {
+    for (const b of [...inn.activeBatsmen, ...inn.outBatsmen]) {
+      const key = `${inn.battingTeam.id}_${b.player.name}`;
+      participatingKeys.add(key);
+      const existing = statsMap.get(key) ?? {
+        key,
+        name: b.player.name,
+        teamName: inn.battingTeam.name,
+        totalRuns: 0,
+        totalWickets: 0,
+        matchesPlayed: 0,
+      };
+      existing.totalRuns += b.runs;
+      statsMap.set(key, existing);
+    }
+    for (const bw of inn.bowlers) {
+      const key = `${inn.bowlingTeam.id}_${bw.name}`;
+      participatingKeys.add(key);
+      const existing = statsMap.get(key) ?? {
+        key,
+        name: bw.name,
+        teamName: inn.bowlingTeam.name,
+        totalRuns: 0,
+        totalWickets: 0,
+        matchesPlayed: 0,
+      };
+      existing.totalWickets += bw.wickets;
+      statsMap.set(key, existing);
+    }
+  }
+
+  for (const key of participatingKeys) {
+    const s = statsMap.get(key);
+    if (s) {
+      s.matchesPlayed += 1;
+      statsMap.set(key, s);
+    }
+  }
+
+  savePlayerStats(Array.from(statsMap.values()));
+}
+
+// ──────────────────────────────────────────────────────────────
 // ANALYTICS DASHBOARD
 // ──────────────────────────────────────────────────────────────
 
@@ -769,6 +849,7 @@ interface HomeViewProps {
   onAddPlayer?: (team: MyTeam) => void;
   onRules?: () => void;
   onAnalytics?: () => void;
+  onPlayerLeaderboard?: () => void;
 }
 
 function HomeView({
@@ -791,6 +872,7 @@ function HomeView({
   onAddPlayer,
   onRules,
   onAnalytics,
+  onPlayerLeaderboard,
 }: HomeViewProps) {
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(
     () => (window as any).__deferredInstallPrompt || null,
@@ -1751,6 +1833,71 @@ function HomeView({
               </span>
             </motion.button>
           )}
+
+          {/* Tournament Leaderboard Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.player_leaderboard.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={() => onPlayerLeaderboard?.()}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl border cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,215,0,0.14) 0%, rgba(255,215,0,0.04) 100%)",
+              borderColor: "rgba(255,215,0,0.4)",
+              boxShadow:
+                "0 0 20px rgba(255,215,0,0.22), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div
+              style={{
+                filter:
+                  "drop-shadow(0 0 10px #ffd700) drop-shadow(0 0 20px #aa8800)",
+              }}
+            >
+              <svg width="48" height="48" viewBox="0 0 40 40" fill="none">
+                <title>Tournament Leaderboard</title>
+                <rect
+                  x="14"
+                  y="24"
+                  width="12"
+                  height="12"
+                  rx="2"
+                  fill="#ffd700"
+                  opacity="0.9"
+                />
+                <rect
+                  x="4"
+                  y="28"
+                  width="10"
+                  height="8"
+                  rx="2"
+                  fill="#ffd700"
+                  opacity="0.6"
+                />
+                <rect
+                  x="26"
+                  y="28"
+                  width="10"
+                  height="8"
+                  rx="2"
+                  fill="#ffd700"
+                  opacity="0.6"
+                />
+                <polygon
+                  points="20,4 23,14 34,14 25,21 28,31 20,24 12,31 15,21 6,14 17,14"
+                  fill="#ffd700"
+                  opacity="0.95"
+                />
+              </svg>
+            </div>
+            <span
+              className="text-sm font-bold tracking-wide text-center leading-tight"
+              style={{ color: "#ffd700" }}
+            >
+              LEADERBOARD
+            </span>
+          </motion.button>
         </div>
         {/* Past Matches Toggle */}
         <button
@@ -3258,6 +3405,347 @@ function InningsSwitchView({ innings1, onStart2nd }: InningsSwitchProps) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// MAN OF THE MATCH MODAL
+// ──────────────────────────────────────────────────────────────
+
+interface MotmCandidate {
+  name: string;
+  teamName: string;
+  teamId: string;
+  runs: number;
+  wickets: number;
+}
+
+interface ManOfTheMatchModalProps {
+  match: MatchRecord;
+  onConfirm: (motm: {
+    name: string;
+    teamName: string;
+    runs: number;
+    wickets: number;
+    photo?: string;
+  }) => void;
+  onSkip: () => void;
+}
+
+function ManOfTheMatchModal({
+  match,
+  onConfirm,
+  onSkip,
+}: ManOfTheMatchModalProps) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<string | undefined>(undefined);
+
+  const candidateMap = new Map<string, MotmCandidate>();
+  for (const inn of [match.innings1, match.innings2].filter(
+    Boolean,
+  ) as InningsState[]) {
+    for (const b of [...inn.activeBatsmen, ...inn.outBatsmen]) {
+      const key = `${inn.battingTeam.id}_${b.player.name}`;
+      const ex = candidateMap.get(key);
+      if (ex) {
+        ex.runs += b.runs;
+      } else
+        candidateMap.set(key, {
+          name: b.player.name,
+          teamName: inn.battingTeam.name,
+          teamId: inn.battingTeam.id,
+          runs: b.runs,
+          wickets: 0,
+        });
+    }
+    for (const bw of inn.bowlers) {
+      const key = `${inn.bowlingTeam.id}_${bw.name}`;
+      const ex = candidateMap.get(key);
+      if (ex) {
+        ex.wickets += bw.wickets;
+      } else
+        candidateMap.set(key, {
+          name: bw.name,
+          teamName: inn.bowlingTeam.name,
+          teamId: inn.bowlingTeam.id,
+          runs: 0,
+          wickets: bw.wickets,
+        });
+    }
+  }
+
+  const candidates = Array.from(candidateMap.values()).sort(
+    (a, b) => b.runs + b.wickets * 20 - (a.runs + a.wickets * 20),
+  );
+  const selectedCandidate = selected ? candidateMap.get(selected) : null;
+
+  return (
+    <div
+      data-ocid="motm.modal"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(0,0,0,0.95)",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        overflowY: "auto",
+        padding: "20px 16px 80px",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: "480px" }}>
+        <div style={{ textAlign: "center", marginBottom: "20px" }}>
+          <div style={{ fontSize: "48px", marginBottom: "8px" }}>🏆</div>
+          <h2
+            style={{
+              color: "#ffd700",
+              fontSize: "22px",
+              fontWeight: 800,
+              margin: 0,
+            }}
+          >
+            Man of the Match
+          </h2>
+          <p
+            style={{
+              color: "rgba(255,255,255,0.5)",
+              fontSize: "13px",
+              marginTop: "6px",
+            }}
+          >
+            Select the best performer
+          </p>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            marginBottom: "20px",
+          }}
+        >
+          {candidates.map((c) => {
+            const key = `${c.teamId}_${c.name}`;
+            const isSelected = selected === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                data-ocid="motm.item.1"
+                onClick={() => setSelected(isSelected ? null : key)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "12px 16px",
+                  borderRadius: "12px",
+                  border: `2px solid ${isSelected ? "#ffd700" : "rgba(255,255,255,0.1)"}`,
+                  background: isSelected
+                    ? "rgba(255,215,0,0.12)"
+                    : "rgba(255,255,255,0.04)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  width: "100%",
+                  boxShadow: isSelected
+                    ? "0 0 20px rgba(255,215,0,0.3)"
+                    : "none",
+                  transition: "all 0.2s",
+                }}
+              >
+                <div
+                  style={{
+                    width: "40px",
+                    height: "40px",
+                    borderRadius: "50%",
+                    background: isSelected
+                      ? "rgba(255,215,0,0.2)"
+                      : "rgba(255,255,255,0.1)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "16px",
+                    flexShrink: 0,
+                    color: "#fff",
+                    fontWeight: 700,
+                  }}
+                >
+                  {isSelected ? "⭐" : c.name.charAt(0).toUpperCase()}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p
+                    style={{
+                      color: isSelected ? "#ffd700" : "#fff",
+                      fontWeight: 700,
+                      margin: 0,
+                      fontSize: "15px",
+                    }}
+                  >
+                    {c.name}
+                  </p>
+                  <p
+                    style={{
+                      color: "rgba(255,255,255,0.45)",
+                      fontSize: "11px",
+                      margin: "2px 0 0",
+                    }}
+                  >
+                    {c.teamName}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+                  {c.runs > 0 && (
+                    <span
+                      style={{
+                        background: "rgba(255,165,0,0.2)",
+                        color: "#ffa500",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      {c.runs}R
+                    </span>
+                  )}
+                  {c.wickets > 0 && (
+                    <span
+                      style={{
+                        background: "rgba(180,0,255,0.2)",
+                        color: "#cc44ff",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      {c.wickets}W
+                    </span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {selected && (
+          <div
+            style={{
+              marginBottom: "16px",
+              padding: "12px 16px",
+              borderRadius: "12px",
+              border: "1px solid rgba(255,215,0,0.2)",
+              background: "rgba(255,215,0,0.05)",
+            }}
+          >
+            <p
+              style={{
+                color: "rgba(255,255,255,0.6)",
+                fontSize: "12px",
+                marginBottom: "8px",
+              }}
+            >
+              📸 Upload Photo (optional)
+            </p>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                cursor: "pointer",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                border: "1px dashed rgba(255,215,0,0.4)",
+                color: "rgba(255,255,255,0.6)",
+                fontSize: "13px",
+              }}
+            >
+              {photo ? "✅ Photo selected" : "📷 Choose from gallery"}
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => setPhoto(ev.target?.result as string);
+                  reader.readAsDataURL(file);
+                }}
+              />
+            </label>
+            {photo && (
+              <img
+                src={photo}
+                alt="MOTM"
+                style={{
+                  width: "64px",
+                  height: "64px",
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  marginTop: "8px",
+                  border: "2px solid #ffd700",
+                }}
+              />
+            )}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            data-ocid="motm.cancel_button"
+            type="button"
+            onClick={onSkip}
+            style={{
+              flex: 1,
+              padding: "14px",
+              borderRadius: "12px",
+              border: "1px solid rgba(255,255,255,0.2)",
+              background: "transparent",
+              color: "rgba(255,255,255,0.6)",
+              fontWeight: 600,
+              fontSize: "15px",
+              cursor: "pointer",
+            }}
+          >
+            Skip
+          </button>
+          <button
+            data-ocid="motm.confirm_button"
+            type="button"
+            disabled={!selected}
+            onClick={() => {
+              if (!selectedCandidate) return;
+              onConfirm({
+                name: selectedCandidate.name,
+                teamName: selectedCandidate.teamName,
+                runs: selectedCandidate.runs,
+                wickets: selectedCandidate.wickets,
+                photo,
+              });
+            }}
+            style={{
+              flex: 2,
+              padding: "14px",
+              borderRadius: "12px",
+              border: "none",
+              background: selected
+                ? "linear-gradient(135deg,#ffd700,#ff8c00)"
+                : "rgba(255,255,255,0.1)",
+              color: selected ? "#000" : "rgba(255,255,255,0.3)",
+              fontWeight: 700,
+              fontSize: "15px",
+              cursor: selected ? "pointer" : "not-allowed",
+              transition: "all 0.2s",
+            }}
+          >
+            🏆 Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // RESULT VIEW
 // ──────────────────────────────────────────────────────────────
 
@@ -3275,6 +3763,10 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
   const [autoSaveImageUrl, setAutoSaveImageUrl] = useState<string | null>(null);
   const [autoSaveGenerating, setAutoSaveGenerating] = useState(false);
   const autoSaveTriggered = React.useRef(false);
+  const [showMotmModal, setShowMotmModal] = useState(true);
+  const [confirmedMotm, setConfirmedMotm] = useState<
+    MatchRecord["manOfTheMatch"]
+  >(match.manOfTheMatch ?? undefined);
 
   // Auto-create MatchInfoCard when result screen loads
   useEffect(() => {
@@ -3317,8 +3809,9 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
     } catch {}
   }, [match, innings1, innings2, resultText]);
 
-  // Auto-generate scorecard image on result screen mount
+  // Auto-generate scorecard image on result screen mount (after MOTM selection)
   useEffect(() => {
+    if (showMotmModal) return;
     if (autoSaveTriggered.current) return;
     autoSaveTriggered.current = true;
 
@@ -3333,7 +3826,7 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
     }, 1200);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [showMotmModal]);
 
   function renderBatsmen(inn: InningsState) {
     const all = [...inn.outBatsmen, ...inn.activeBatsmen];
@@ -3442,6 +3935,28 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
     }
   }
 
+  if (showMotmModal) {
+    return (
+      <ManOfTheMatchModal
+        match={match}
+        onConfirm={(motm) => {
+          try {
+            const saved = JSON.parse(
+              localStorage.getItem("ccb_past_matches") ?? "[]",
+            ) as MatchRecord[];
+            const updated = saved.map((m) =>
+              m.id === match.id ? { ...m, manOfTheMatch: motm } : m,
+            );
+            localStorage.setItem("ccb_past_matches", JSON.stringify(updated));
+          } catch {}
+          setConfirmedMotm(motm);
+          setShowMotmModal(false);
+        }}
+        onSkip={() => setShowMotmModal(false)}
+      />
+    );
+  }
+
   return (
     <Page>
       <main className="flex-1 overflow-y-auto px-4 py-6">
@@ -3466,42 +3981,80 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
         </motion.div>
 
         {/* Man of the Match */}
-        {(() => {
-          const allBatsmen: { name: string; runs: number }[] = [];
-          for (const inn of [innings1, innings2].filter(
-            Boolean,
-          ) as InningsState[]) {
-            for (const b of [...inn.activeBatsmen, ...inn.outBatsmen]) {
-              const existing = allBatsmen.find((x) => x.name === b.player.name);
-              if (existing) existing.runs += b.runs;
-              else allBatsmen.push({ name: b.player.name, runs: b.runs });
-            }
-          }
-          const motm = allBatsmen.sort((a, b) => b.runs - a.runs)[0];
-          if (!motm || motm.runs === 0) return null;
-          return (
-            <motion.div
-              initial={{ y: 20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.3, type: "spring" }}
-              className="mb-6 rounded-2xl border-2 border-yellow-400 bg-gradient-to-br from-yellow-950/60 to-black/80 px-5 py-4 text-center shadow-[0_0_24px_rgba(250,204,21,0.35)]"
-              data-ocid="result.motm.card"
+        {confirmedMotm && (
+          <motion.div
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.3, type: "spring" }}
+            className="mb-6 rounded-2xl border-2 border-yellow-400 bg-gradient-to-br from-yellow-950/60 to-black/80 px-5 py-4 text-center shadow-[0_0_24px_rgba(250,204,21,0.35)]"
+            data-ocid="result.motm.card"
+          >
+            <p className="text-yellow-400/70 text-xs uppercase tracking-[0.2em] font-semibold mb-1">
+              🏆 Man of the Match
+            </p>
+            {confirmedMotm.photo && (
+              <img
+                src={confirmedMotm.photo}
+                alt="MOTM"
+                style={{
+                  width: "72px",
+                  height: "72px",
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  margin: "0 auto 10px",
+                  border: "3px solid #ffd700",
+                  boxShadow: "0 0 20px rgba(255,215,0,0.4)",
+                }}
+              />
+            )}
+            <p
+              className="text-yellow-300 font-display font-bold text-2xl"
+              style={{ textShadow: "0 0 16px rgba(250,204,21,0.5)" }}
             >
-              <p className="text-yellow-400/70 text-xs uppercase tracking-[0.2em] font-semibold mb-1">
-                🏆 Man of the Match
-              </p>
-              <p
-                className="text-yellow-300 font-display font-bold text-2xl"
-                style={{ textShadow: "0 0 16px rgba(250,204,21,0.5)" }}
-              >
-                {motm.name}
-              </p>
-              <p className="text-yellow-400/80 text-sm mt-1 font-body">
-                {motm.runs} Runs
-              </p>
-            </motion.div>
-          );
-        })()}
+              {confirmedMotm.name}
+            </p>
+            <p className="text-yellow-400/60 text-xs mt-1 font-body">
+              {confirmedMotm.teamName}
+            </p>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: "12px",
+                marginTop: "8px",
+              }}
+            >
+              {confirmedMotm.runs > 0 && (
+                <span
+                  style={{
+                    background: "rgba(255,165,0,0.2)",
+                    color: "#ffa500",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    padding: "3px 10px",
+                    borderRadius: "8px",
+                  }}
+                >
+                  {confirmedMotm.runs} Runs
+                </span>
+              )}
+              {confirmedMotm.wickets > 0 && (
+                <span
+                  style={{
+                    background: "rgba(180,0,255,0.2)",
+                    color: "#cc44ff",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    padding: "3px 10px",
+                    borderRadius: "8px",
+                  }}
+                >
+                  {confirmedMotm.wickets} Wkts
+                </span>
+              )}
+            </div>
+          </motion.div>
+        )}
 
         {/* Scorecard */}
         <div id="scorecard-print" className="space-y-4">
@@ -5931,20 +6484,29 @@ async function getHtml2Canvas() {
 async function generateScorecardImage(
   elementId: string,
 ): Promise<string | null> {
-  try {
-    const el = document.getElementById(elementId);
-    if (!el) return null;
-    const toPng = await loadToPng();
-    return await toPng(el, {
-      quality: 1,
-      pixelRatio: 2,
-      backgroundColor: "#000000",
-      style: { transform: "none" },
-      filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
-    } as Record<string, unknown>);
-  } catch {
-    return null;
+  const el = document.getElementById(elementId);
+  if (!el) return null;
+  // Retry up to 3 times for reliability on Android Chrome
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
+      const toPng = await loadToPng();
+      const dataUrl = await toPng(el, {
+        quality: 1,
+        pixelRatio:
+          window.devicePixelRatio > 2 ? 2 : window.devicePixelRatio || 2,
+        backgroundColor: "#000000",
+        cacheBust: true,
+        skipAutoScale: false,
+        style: { transform: "none" },
+        filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
+      } as Record<string, unknown>);
+      if (dataUrl && dataUrl.length > 1000) return dataUrl;
+    } catch {
+      // retry
+    }
   }
+  return null;
 }
 
 async function saveAsPng(
@@ -5962,33 +6524,27 @@ async function saveAsPng(
       return null;
     }
 
-    // Try html-to-image first (most reliable on Android Chrome)
+    // Try html-to-image with retry (most reliable on Android Chrome)
     let dataUrl: string | null = null;
-    try {
-      const toPng = await loadToPng();
-      dataUrl = await toPng(el, {
-        quality: 1,
-        pixelRatio: 2,
-        backgroundColor: "#000000",
-        style: { transform: "none" },
-        filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
-      } as Record<string, unknown>);
-    } catch {
-      // Fallback: canvas.toBlob approach
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const canvas = document.createElement("canvas");
-        const scale = 3;
-        canvas.width = el.offsetWidth * scale;
-        canvas.height = el.offsetHeight * scale;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          ctx.scale(scale, scale);
-          ctx.fillStyle = "#0a0e21";
-          ctx.fillRect(0, 0, el.offsetWidth, el.offsetHeight);
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
+        const toPng = await loadToPng();
+        const result = await toPng(el, {
+          quality: 1,
+          pixelRatio:
+            window.devicePixelRatio > 2 ? 2 : window.devicePixelRatio || 2,
+          backgroundColor: "#000000",
+          cacheBust: true,
+          style: { transform: "none" },
+          filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
+        } as Record<string, unknown>);
+        if (result && result.length > 1000) {
+          dataUrl = result;
+          break;
         }
-        dataUrl = canvas.toDataURL("image/png");
       } catch {
-        throw new Error("Both capture methods failed");
+        /* retry */
       }
     }
 
@@ -9012,7 +9568,7 @@ function MatchesTabView({
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 pb-20">
               {pastMatches.map((m, i) => (
                 <div
                   key={m.id}
@@ -9055,6 +9611,7 @@ function MatchesTabView({
                       </p>
                       <p className="text-white/30 text-xs font-body mt-1">
                         {m.date}
+                        {m.time ? ` • ${m.time}` : ""}
                       </p>
                     </div>
                     {isAdminUnlocked && (
@@ -9174,6 +9731,480 @@ function CommunityTabView({ teams }: { teams: Team[] }) {
         <PostVoteView onHome={() => {}} teams={teams} />
       </div>
     </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
+// PLAYER LEADERBOARD VIEW
+// ──────────────────────────────────────────────────────────────
+
+function PlayerLeaderboardView({ onBack }: { onBack: () => void }) {
+  const stats = loadPlayerStats();
+  const orangeCap =
+    stats.length > 0
+      ? [...stats].sort((a, b) => b.totalRuns - a.totalRuns)[0]
+      : null;
+  const purpleCap =
+    stats.length > 0
+      ? [...stats].sort((a, b) => b.totalWickets - a.totalWickets)[0]
+      : null;
+  const mvp =
+    stats.length > 0
+      ? [...stats].sort(
+          (a, b) =>
+            b.totalRuns +
+            b.totalWickets * 20 -
+            (a.totalRuns + a.totalWickets * 20),
+        )[0]
+      : null;
+  const topBatsmen = [...stats]
+    .sort((a, b) => b.totalRuns - a.totalRuns)
+    .slice(0, 10);
+  const topBowlers = [...stats]
+    .sort((a, b) => b.totalWickets - a.totalWickets)
+    .slice(0, 10);
+
+  return (
+    <Page>
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          padding: "12px 16px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        <button
+          data-ocid="leaderboard.close_button"
+          type="button"
+          onClick={onBack}
+          style={{
+            background: "none",
+            border: "none",
+            color: "#fff",
+            cursor: "pointer",
+            padding: "4px 8px",
+            marginRight: "12px",
+            fontSize: "18px",
+          }}
+        >
+          ←
+        </button>
+        <h1
+          style={{
+            color: "#ffd700",
+            fontWeight: 800,
+            fontSize: "18px",
+            margin: 0,
+          }}
+        >
+          🏆 Tournament Leaderboard
+        </h1>
+      </header>
+      <main
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px",
+          paddingBottom: "100px",
+        }}
+      >
+        {stats.length === 0 ? (
+          <div
+            data-ocid="leaderboard.empty_state"
+            style={{
+              textAlign: "center",
+              color: "rgba(255,255,255,0.4)",
+              padding: "60px 20px",
+            }}
+          >
+            <div style={{ fontSize: "48px", marginBottom: "12px" }}>📊</div>
+            <p style={{ fontSize: "16px" }}>No stats available yet</p>
+            <p style={{ fontSize: "13px", marginTop: "6px" }}>
+              Complete matches to see player rankings
+            </p>
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "12px",
+              }}
+            >
+              {orangeCap && orangeCap.totalRuns > 0 && (
+                <div
+                  style={{
+                    padding: "16px",
+                    borderRadius: "16px",
+                    border: "2px solid rgba(255,165,0,0.5)",
+                    background: "rgba(255,165,0,0.08)",
+                    boxShadow: "0 0 20px rgba(255,165,0,0.15)",
+                  }}
+                >
+                  <div style={{ fontSize: "28px", marginBottom: "6px" }}>
+                    🧢
+                  </div>
+                  <p
+                    style={{
+                      color: "#ffa500",
+                      fontWeight: 700,
+                      fontSize: "11px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
+                      margin: "0 0 6px",
+                    }}
+                  >
+                    Orange Cap
+                  </p>
+                  <p
+                    style={{
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: "16px",
+                      margin: 0,
+                    }}
+                  >
+                    {orangeCap.name}
+                  </p>
+                  <p
+                    style={{
+                      color: "rgba(255,255,255,0.5)",
+                      fontSize: "11px",
+                      margin: "3px 0",
+                    }}
+                  >
+                    {orangeCap.teamName}
+                  </p>
+                  <p
+                    style={{
+                      color: "#ffa500",
+                      fontWeight: 800,
+                      fontSize: "22px",
+                      margin: "6px 0 0",
+                    }}
+                  >
+                    {orangeCap.totalRuns}{" "}
+                    <span style={{ fontSize: "12px", fontWeight: 400 }}>
+                      runs
+                    </span>
+                  </p>
+                </div>
+              )}
+              {purpleCap && purpleCap.totalWickets > 0 && (
+                <div
+                  style={{
+                    padding: "16px",
+                    borderRadius: "16px",
+                    border: "2px solid rgba(180,0,255,0.5)",
+                    background: "rgba(180,0,255,0.08)",
+                    boxShadow: "0 0 20px rgba(180,0,255,0.15)",
+                  }}
+                >
+                  <div style={{ fontSize: "28px", marginBottom: "6px" }}>
+                    🎯
+                  </div>
+                  <p
+                    style={{
+                      color: "#cc44ff",
+                      fontWeight: 700,
+                      fontSize: "11px",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
+                      margin: "0 0 6px",
+                    }}
+                  >
+                    Purple Cap
+                  </p>
+                  <p
+                    style={{
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: "16px",
+                      margin: 0,
+                    }}
+                  >
+                    {purpleCap.name}
+                  </p>
+                  <p
+                    style={{
+                      color: "rgba(255,255,255,0.5)",
+                      fontSize: "11px",
+                      margin: "3px 0",
+                    }}
+                  >
+                    {purpleCap.teamName}
+                  </p>
+                  <p
+                    style={{
+                      color: "#cc44ff",
+                      fontWeight: 800,
+                      fontSize: "22px",
+                      margin: "6px 0 0",
+                    }}
+                  >
+                    {purpleCap.totalWickets}{" "}
+                    <span style={{ fontSize: "12px", fontWeight: 400 }}>
+                      wickets
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {mvp && (
+              <div
+                style={{
+                  padding: "20px",
+                  borderRadius: "16px",
+                  border: "2px solid rgba(255,215,0,0.5)",
+                  background: "rgba(255,215,0,0.07)",
+                  boxShadow: "0 0 24px rgba(255,215,0,0.15)",
+                }}
+              >
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "12px" }}
+                >
+                  <div style={{ fontSize: "36px" }}>⭐</div>
+                  <div>
+                    <p
+                      style={{
+                        color: "#ffd700",
+                        fontWeight: 700,
+                        fontSize: "11px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.1em",
+                        margin: 0,
+                      }}
+                    >
+                      MVP Player
+                    </p>
+                    <p
+                      style={{
+                        color: "#fff",
+                        fontWeight: 800,
+                        fontSize: "20px",
+                        margin: "4px 0 2px",
+                      }}
+                    >
+                      {mvp.name}
+                    </p>
+                    <p
+                      style={{
+                        color: "rgba(255,255,255,0.5)",
+                        fontSize: "12px",
+                        margin: 0,
+                      }}
+                    >
+                      {mvp.teamName} · {mvp.totalRuns}R / {mvp.totalWickets}W
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {topBatsmen.filter((p) => p.totalRuns > 0).length > 0 && (
+              <div>
+                <h3
+                  style={{
+                    color: "#ffa500",
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  🏏 Top Batsmen
+                </h3>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  {topBatsmen
+                    .filter((p) => p.totalRuns > 0)
+                    .map((p, i) => (
+                      <div
+                        key={p.key}
+                        data-ocid={`leaderboard.item.${i + 1}`}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          padding: "10px 14px",
+                          borderRadius: "10px",
+                          background:
+                            i === 0
+                              ? "rgba(255,165,0,0.1)"
+                              : "rgba(255,255,255,0.04)",
+                          border:
+                            i === 0
+                              ? "1px solid rgba(255,165,0,0.3)"
+                              : "1px solid rgba(255,255,255,0.07)",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color:
+                              i < 3
+                                ? (
+                                    [
+                                      "#ffd700",
+                                      "#c0c0c0",
+                                      "#cd7f32",
+                                    ] as string[]
+                                  )[i]
+                                : "rgba(255,255,255,0.3)",
+                            fontWeight: 700,
+                            fontSize: "13px",
+                            width: "20px",
+                          }}
+                        >
+                          #{i + 1}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <p
+                            style={{
+                              color: "#fff",
+                              fontWeight: 600,
+                              fontSize: "14px",
+                              margin: 0,
+                            }}
+                          >
+                            {p.name}
+                          </p>
+                          <p
+                            style={{
+                              color: "rgba(255,255,255,0.4)",
+                              fontSize: "11px",
+                              margin: "2px 0 0",
+                            }}
+                          >
+                            {p.teamName}
+                          </p>
+                        </div>
+                        <span
+                          style={{
+                            color: "#ffa500",
+                            fontWeight: 800,
+                            fontSize: "16px",
+                          }}
+                        >
+                          {p.totalRuns}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {topBowlers.filter((p) => p.totalWickets > 0).length > 0 && (
+              <div>
+                <h3
+                  style={{
+                    color: "#cc44ff",
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  🎯 Top Bowlers
+                </h3>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  {topBowlers
+                    .filter((p) => p.totalWickets > 0)
+                    .map((p, i) => (
+                      <div
+                        key={p.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          padding: "10px 14px",
+                          borderRadius: "10px",
+                          background:
+                            i === 0
+                              ? "rgba(180,0,255,0.1)"
+                              : "rgba(255,255,255,0.04)",
+                          border:
+                            i === 0
+                              ? "1px solid rgba(180,0,255,0.3)"
+                              : "1px solid rgba(255,255,255,0.07)",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color:
+                              i < 3
+                                ? (
+                                    [
+                                      "#ffd700",
+                                      "#c0c0c0",
+                                      "#cd7f32",
+                                    ] as string[]
+                                  )[i]
+                                : "rgba(255,255,255,0.3)",
+                            fontWeight: 700,
+                            fontSize: "13px",
+                            width: "20px",
+                          }}
+                        >
+                          #{i + 1}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <p
+                            style={{
+                              color: "#fff",
+                              fontWeight: 600,
+                              fontSize: "14px",
+                              margin: 0,
+                            }}
+                          >
+                            {p.name}
+                          </p>
+                          <p
+                            style={{
+                              color: "rgba(255,255,255,0.4)",
+                              fontSize: "11px",
+                              margin: "2px 0 0",
+                            }}
+                          >
+                            {p.teamName}
+                          </p>
+                        </div>
+                        <span
+                          style={{
+                            color: "#cc44ff",
+                            fontWeight: 800,
+                            fontSize: "16px",
+                          }}
+                        >
+                          {p.totalWickets}W
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </main>
+    </Page>
   );
 }
 
@@ -9516,6 +10547,10 @@ export default function App() {
     const record: MatchRecord = {
       id: Date.now().toString(),
       date: new Date().toLocaleDateString("en-PK"),
+      time: new Date().toLocaleTimeString("en-PK", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
       teamA: setupTeamA!,
       teamB: setupTeamB!,
       totalOvers: setupOvers,
@@ -9534,6 +10569,7 @@ export default function App() {
         .syncMatch(currentUser?.phone ?? "anon", JSON.stringify(record))
         .catch(() => {});
     }
+    updatePlayerStatsAfterMatch(record);
     setCurrentMatch(record);
     setView("result");
   }
@@ -9687,6 +10723,7 @@ export default function App() {
             }}
             onRules={() => setView("rules")}
             onAnalytics={() => setView("analytics")}
+            onPlayerLeaderboard={() => setView("player-leaderboard")}
           />
         )}
 
@@ -9833,6 +10870,13 @@ export default function App() {
             onAdminLogin={handleUnlockAdmin}
             actor={actor}
             userPhone={currentUser?.phone}
+          />
+        )}
+
+        {view === "player-leaderboard" && (
+          <PlayerLeaderboardView
+            key="player-leaderboard"
+            onBack={() => setView("home")}
           />
         )}
 
