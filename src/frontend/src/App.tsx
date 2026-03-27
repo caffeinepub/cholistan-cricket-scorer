@@ -48,6 +48,10 @@ import { AdminLoginModal } from "./components/AdminLoginModal";
 import AnnouncementSection from "./components/AnnouncementSection";
 import { RulesPage } from "./components/RulesPage";
 import ScoreBoardTemplate from "./components/ScoreBoardTemplate";
+import {
+  TournamentEngine,
+  syncMatchToTournament,
+} from "./components/TournamentEngine";
 import { useActor } from "./hooks/useActor";
 import { useAdminSession } from "./hooks/useAdminSession";
 
@@ -4573,6 +4577,7 @@ interface ScoreDialogState {
   totalOvers: string;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: kept for future use
 function TournamentView({
   onBack,
   tournament,
@@ -10252,7 +10257,9 @@ export default function App() {
   const [currentInningsNum, setCurrentInningsNum] = useState<1 | 2>(1);
   const [currentMatch, setCurrentMatch] = useState<MatchRecord | null>(null);
   const [pastMatches, setPastMatches] = useState<MatchRecord[]>([]);
+  // biome-ignore lint/correctness/noUnusedVariables: legacy tournament state kept for data compatibility
   const [tournament, setTournament] = useState<Tournament>(EMPTY_TOURNAMENT);
+
   const [matchInfoCards, setMatchInfoCards] = useState<MatchInfoCard[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("home");
 
@@ -10329,11 +10336,28 @@ export default function App() {
     } catch {}
   }
 
+  // biome-ignore lint/correctness/noUnusedVariables: kept for legacy TournamentView compatibility
   function handleUpdateTournament(t: Tournament) {
     setTournament(t);
     try {
       localStorage.setItem("ccb_tournament", JSON.stringify(t));
     } catch {}
+  }
+
+  function handleTournamentStartMatch(params: {
+    teamAId: string;
+    teamBId: string;
+    overs: number;
+    tournamentMatchId: string;
+    matchTag: string;
+  }) {
+    const teamA = teams.find((t) => t.id === params.teamAId) ?? null;
+    const teamB = teams.find((t) => t.id === params.teamBId) ?? null;
+    if (!teamA || !teamB) return;
+    setSetupTeamA(teamA);
+    setSetupTeamB(teamB);
+    setSetupOvers(params.overs);
+    setView("setup");
   }
 
   function saveTeams(updated: Team[]) {
@@ -10592,6 +10616,17 @@ export default function App() {
         .syncMatch(currentUser?.phone ?? "anon", JSON.stringify(record))
         .catch(() => {});
     }
+    // Auto-sync to tournament engine v2
+    try {
+      const savedT2 = localStorage.getItem("ccb_tournament_v2");
+      if (savedT2) {
+        const t2Data = JSON.parse(savedT2);
+        const syncedT2 = syncMatchToTournament(t2Data, record);
+        if (syncedT2 !== t2Data) {
+          localStorage.setItem("ccb_tournament_v2", JSON.stringify(syncedT2));
+        }
+      }
+    } catch {}
     updatePlayerStatsAfterMatch(record);
     setCurrentMatch(record);
     setView("result");
@@ -10799,13 +10834,13 @@ export default function App() {
         )}
 
         {view === "tournament" && (
-          <TournamentView
+          <TournamentEngine
             key="tournament"
             onBack={() => setView("home")}
-            tournament={tournament}
-            onUpdate={handleUpdateTournament}
             teams={teams}
-            externalAdminUnlocked={isAdminUnlocked}
+            completedMatches={pastMatches}
+            isAdmin={isAdminUnlocked}
+            onStartMatch={handleTournamentStartMatch}
           />
         )}
 

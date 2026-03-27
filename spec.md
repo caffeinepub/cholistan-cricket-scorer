@@ -1,35 +1,63 @@
-# Cholistan Cricket Scorer — Final Production Upgrade
+# CCB SCORING PRO — Full Auto Tournament Engine
 
 ## Current State
-- React PWA with 9199-line App.tsx, all features in one file
-- localStorage-only persistence (no cross-device sync in main app data)
-- Backend (Motoko) only handles announcements/media
-- Service worker exists in public/ but is NOT registered in main.tsx
-- Bulk player paste: NOT implemented
-- Analytics dashboard: NOT implemented
-- PNG save uses html-to-image (may have issues on Android Chrome)
+The app has an existing `TournamentView` inside App.tsx (~700 lines) that supports:
+- Manual pool creation (up to 4 pools)
+- Manual team assignment to pools
+- Manual round-robin match generation per pool
+- Score entry by admin
+- Points table / standings tab
+Data saved to `ccb_tournament` in localStorage.
+
+The home dashboard has a 🏆 Tournament card that navigates to view="tournament" which renders the old TournamentView.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Backend: registerUser(phone, name), getUserCount(), syncTeams(phone, teamsJSON), getTeams(phone), syncMatches(phone, matchesJSON), getMatches(phone), getAnalytics() → {userCount, teamCount, matchCount}
-- Frontend: Service worker registration in main.tsx
-- Frontend: Bulk player paste textarea (in MyTeamsManager add-player section) — each line = one player added to team
-- Frontend: Analytics dashboard (admin-only card on Home, shows: Total Users, Total Teams, Total Matches, Activity)
-- Frontend: Backend sync hooks — on login: pull teams/matches from canister; on save: push to canister in background; fallback to localStorage silently
+- `TournamentEngine.tsx` — new standalone component with full auto-tournament logic
+- New localStorage key `ccb_tournament_v2` for engine data (preserves old `ccb_tournament`)
+- Auto pool generation (20 teams → 4 pools ×5, 16 → 4×4, 8 → 2×4)
+- Auto round-robin schedule within each pool
+- Pool match tags: "Pool A Match", "Pool B Match", etc.
+- Night Match toggle per match (shows 🌙 label, signals 5 overs when starting)
+- Points Table (Win=2, Loss=0, NRR) — public, auto-updated from completed matches
+- Qualification: top 2 per pool qualify
+- Auto Knockout bracket: QF cross-pool seeding (A1 vs C2, A2 vs C1, B1 vs D2, B2 vs D1)
+- Semi Finals: QF1W vs QF2W, QF3W vs QF4W
+- Final: SF1W vs SF2W
+- Visual bracket screen (QF / SF / Final)
+- Tournament Status Bar: Pool Stage → Knockout → Final
+- Match tags: Pool Match / Quarter Final / Semi Final / Final
+- Admin Override: admin can manually set winner/score for any match (requires Shahzad@99)
+- Safe Edit: edited matches flagged as `isManual=true`, rest of system unaffected
+- Match Linking: pool matches & knockout matches store `linkedMatchId` referencing a `MatchRecord.id`
+- Auto-sync: when a match completes in scoring system, tournament engine auto-updates the corresponding tournament match if teams match
+- `onStartMatch` callback: starts a match from tournament with pre-selected teams and correct overs
+- `pendingTournamentMatchId` state in App.tsx to link scoring match back to tournament
 
 ### Modify
-- Backend main.mo: Add user/team/match storage alongside existing announcements
-- Frontend main.tsx: Add navigator.serviceWorker.register('/sw.js') call
-- Frontend App.tsx: Wire backend sync in handleAddPlayer/handleMyTeams save + login flow; add analytics view; add bulk paste dialog
+- App.tsx: replace `<TournamentView>` block with `<TournamentEngine>` for view="tournament"
+- App.tsx: add `tournamentV2` state (loaded from `ccb_tournament_v2`)
+- App.tsx: in `handleInnings2End`, auto-sync completed match to tournament engine
+- App.tsx: add `onStartMatch` handler that pre-selects teams and overs in setup view
 
 ### Remove
-- Nothing removed
+- Nothing removed. Old `TournamentView` function remains in App.tsx (unused but not deleted for safety)
 
 ## Implementation Plan
-1. Expand Motoko backend with user registration, team sync, match sync, analytics queries
-2. Update main.tsx to register service worker
-3. Add bulk player paste: textarea dialog in TeamsTabView for My Teams section
-4. Add analytics dashboard: new admin-only card + view showing 4 stat cards
-5. Wire ICP backend sync: after login pull data, on changes push to backend (fire-and-forget, localStorage remains primary)
-6. Fix PNG save: ensure html-to-image is called with correct options for Android Chrome (scale, backgroundColor, filter)
+1. Create `src/frontend/src/components/TournamentEngine.tsx`
+   - Types: TPoolMatch, KnockoutMatch, EngineData
+   - Utils: generatePools, generateRoundRobin, calcStandings, generateKnockout, autoProgressKnockout
+   - 5 tabs: Setup, Pool Matches, Points Table, Qualified, Bracket
+   - Load from / save to `ccb_tournament_v2`
+   - `useEffect` on `completedMatches` for auto-sync
+   - Admin password gate for result entry and overrides
+
+2. Patch App.tsx (minimal changes):
+   - Import TournamentEngine
+   - Add `tournamentV2` useState (loaded from ccb_tournament_v2)
+   - Add `pendingTournamentMatchId` useRef
+   - Add `handleUpdateTournamentV2` save function
+   - Modify `handleInnings2End` to call `autoSyncTournamentMatch(record)`
+   - Add `handleTournamentStartMatch` handler
+   - Replace the `{view === 'tournament' && <TournamentView ...>}` block
