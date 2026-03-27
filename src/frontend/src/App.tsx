@@ -10233,7 +10233,16 @@ export default function App() {
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamLogo, setNewTeamLogo] = useState<string | undefined>(undefined);
   const [view, setView] = useState<View>("home");
-  const [teams, setTeams] = useState<Team[]>(TEAMS);
+  const [teams, setTeams] = useState<Team[]>(() => {
+    try {
+      const saved = localStorage.getItem("ccb_teams");
+      if (saved) {
+        const parsed = JSON.parse(saved) as Team[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return TEAMS;
+  });
   const [showEditTeams, setShowEditTeams] = useState(false);
   const [setupTeamA, setSetupTeamA] = useState<Team | null>(null);
   const [setupTeamB, setSetupTeamB] = useState<Team | null>(null);
@@ -10327,17 +10336,27 @@ export default function App() {
     } catch {}
   }
 
+  function saveTeams(updated: Team[]) {
+    try {
+      const backup = localStorage.getItem("ccb_teams");
+      if (backup) localStorage.setItem("ccb_backup_teams", backup);
+      localStorage.setItem("ccb_teams", JSON.stringify(updated));
+    } catch {}
+  }
+
   function handleAddPlayer(teamId: string, player: Player) {
-    setTeams((prev) =>
-      prev.map((t) =>
+    setTeams((prev) => {
+      const updated = prev.map((t) =>
         t.id === teamId ? { ...t, players: [...t.players, player] } : t,
-      ),
-    );
+      );
+      saveTeams(updated);
+      return updated;
+    });
   }
 
   function handleEditPlayer(teamId: string, updatedPlayer: Player) {
-    setTeams((prev) =>
-      prev.map((t) =>
+    setTeams((prev) => {
+      const updated = prev.map((t) =>
         t.id === teamId
           ? {
               ...t,
@@ -10346,18 +10365,22 @@ export default function App() {
               ),
             }
           : t,
-      ),
-    );
+      );
+      saveTeams(updated);
+      return updated;
+    });
   }
 
   function handleDeletePlayer(teamId: string, playerId: string) {
-    setTeams((prev) =>
-      prev.map((t) =>
+    setTeams((prev) => {
+      const updated = prev.map((t) =>
         t.id === teamId
           ? { ...t, players: t.players.filter((p) => p.id !== playerId) }
           : t,
-      ),
-    );
+      );
+      saveTeams(updated);
+      return updated;
+    });
   }
 
   function handleDeleteMatch(matchId: string) {
@@ -10901,6 +10924,7 @@ export default function App() {
         teams={teams}
         onSave={(updated) => {
           setTeams(updated);
+          saveTeams(updated);
           setShowEditTeams(false);
         }}
         onClose={() => setShowEditTeams(false)}
