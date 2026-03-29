@@ -72,7 +72,6 @@ interface EngineData {
   knockoutMatches: KnockoutMatch[];
   stage: TournamentStage;
   createdAt: string;
-  manualPoolRankings: Record<string, string[]>;
 }
 
 const EMPTY_ENGINE: EngineData = {
@@ -83,7 +82,6 @@ const EMPTY_ENGINE: EngineData = {
   knockoutMatches: [],
   stage: "setup",
   createdAt: "",
-  manualPoolRankings: {},
 };
 
 const STORAGE_KEY = "ccb_tournament_v2";
@@ -131,14 +129,29 @@ export interface TournamentEngineProps {
 // UTILS
 // ─────────────────────────────────────────────────────────────
 
-// generatePools kept for legacy compat
-function _generatePools(): Pool[] {
-  return ["A", "B", "C", "D"].map((name) => ({
-    id: `pool_${name}`,
-    name,
+function generatePools(teamIds: string[]): Pool[] {
+  const count = teamIds.length;
+  let numPools = 2;
+  if (count >= 16) numPools = 4;
+  else if (count >= 12) numPools = 3;
+  else if (count >= 6) numPools = 2;
+  const poolNames = ["A", "B", "C", "D"];
+  const pools: Pool[] = Array.from({ length: numPools }, (_, i) => ({
+    id: `pool_${poolNames[i]}`,
+    name: poolNames[i],
     teamIds: [],
     poolTeamOrder: [],
   }));
+  // Distribute evenly in snake order
+  teamIds.forEach((tid, i) => {
+    const poolIdx = i % numPools;
+    pools[poolIdx].teamIds.push(tid);
+  });
+  // Set poolTeamOrder = teamIds (copy)
+  for (const p of pools) {
+    p.poolTeamOrder = [...p.teamIds];
+  }
+  return pools;
 }
 
 function generateFixedSchedule(pools: Pool[]): TPoolMatch[] {
@@ -274,13 +287,9 @@ function calcStandings(
     s.nrr = rrFor - rrAgainst;
   }
 
-  const poolOrder = pool.poolTeamOrder;
-  return Array.from(map.values()).sort((a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    if (Math.abs(b.nrr - a.nrr) > 0.001) return b.nrr - a.nrr;
-    // Tie-breaker: admin-defined pool position
-    return poolOrder.indexOf(a.teamId) - poolOrder.indexOf(b.teamId);
-  });
+  return Array.from(map.values()).sort(
+    (a, b) => b.points - a.points || b.nrr - a.nrr,
+  );
 }
 
 function generateKnockout(
@@ -524,27 +533,22 @@ export function TournamentEngine({
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as EngineData;
+        // Migration: ensure poolTeamOrder exists on all pools
         if (parsed.pools) {
           parsed.pools = parsed.pools.map((p) => ({
             ...p,
-            poolTeamOrder: p.poolTeamOrder?.length
-              ? p.poolTeamOrder
-              : [...p.teamIds],
+            poolTeamOrder: p.poolTeamOrder || [...p.teamIds],
           }));
         }
-        if (!parsed.manualPoolRankings) parsed.manualPoolRankings = {};
         return parsed;
       }
     } catch {
+      // Try backup
       try {
         const backup = localStorage.getItem("ccb_backup");
         if (backup) {
           const parsed = JSON.parse(backup);
-          const t = parsed.ccb_tournament ?? parsed;
-          if (t?.pools) {
-            if (!t.manualPoolRankings) t.manualPoolRankings = {};
-            return t as EngineData;
-          }
+          if (parsed.ccb_tournament) return parsed.ccb_tournament as EngineData;
         }
       } catch {}
     }
@@ -552,22 +556,6 @@ export function TournamentEngine({
   });
 
   const [tab, setTab] = useState<EngineTab>("setup");
-
-  const [poolAssignments, setPoolAssignments] = useState<
-    Record<string, string[]>
-  >(() => {
-    if (data.pools && data.pools.length === 4) {
-      const result: Record<string, string[]> = {};
-      for (const p of data.pools) {
-        result[p.id] = [
-          ...(p.poolTeamOrder.length ? p.poolTeamOrder : p.teamIds),
-        ];
-      }
-      return result;
-    }
-    return { pool_A: [], pool_B: [], pool_C: [], pool_D: [] };
-  });
-
   const [adminUnlocked, setAdminUnlocked] = useState(externalAdmin);
   const [pwdDialog, setPwdDialog] = useState(false);
   const [pwdInput, setPwdInput] = useState("");
@@ -599,14 +587,13 @@ export function TournamentEngine({
   useEffect(() => {
     if (data !== prevDataRef.current) {
       try {
-        // Write backup FIRST to prevent data loss
         const backupObj = {
-          ccb_tournament: data,
           ccb_pools: data.pools,
           ccb_schedule: data.poolMatches,
+          ccb_matches: data.knockoutMatches,
+          ccb_tournament: data,
         };
         localStorage.setItem("ccb_backup", JSON.stringify(backupObj));
-        // Then write main keys
         localStorage.setItem("ccb_pools", JSON.stringify(data.pools));
         localStorage.setItem("ccb_schedule", JSON.stringify(data.poolMatches));
         localStorage.setItem(
@@ -615,24 +602,9 @@ export function TournamentEngine({
         );
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         prevDataRef.current = data;
-      } catch (e) {
-        console.error("Save error", e);
-      }
+      } catch {}
     }
   }, [data]);
-
-  // Sync poolAssignments when data.pools changes (e.g. after load or reset)
-  useEffect(() => {
-    if (data.pools && data.pools.length > 0) {
-      const result: Record<string, string[]> = {};
-      for (const p of data.pools) {
-        result[p.id] = [
-          ...(p.poolTeamOrder.length ? p.poolTeamOrder : p.teamIds),
-        ];
-      }
-      setPoolAssignments(result);
-    }
-  }, [data.pools]);
 
   // Auto-sync completed matches from scoring system
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
@@ -666,9 +638,22 @@ export function TournamentEngine({
 
   const allTeams = teams;
 
+  function toggleTeamSelection(teamId: string) {
+    const sel = data.selectedTeamIds;
+    if (sel.includes(teamId)) {
+      save({ selectedTeamIds: sel.filter((id) => id !== teamId) });
+    } else {
+      save({ selectedTeamIds: [...sel, teamId] });
+    }
+  }
+
+  function selectAllTeams() {
+    save({ selectedTeamIds: allTeams.map((t) => t.id) });
+  }
+
   // ── POOL TEAM ORDER ──────────────────────────────────────────
 
-  function _moveTeamInPool(
+  function moveTeamInPool(
     poolId: string,
     teamId: string,
     direction: "up" | "down",
@@ -749,23 +734,11 @@ export function TournamentEngine({
   }
 
   function createTournament() {
-    const totalAssigned = Object.values(poolAssignments).flat().length;
-    if (totalAssigned < 4) {
-      alert("Please assign at least 4 teams to pools.");
+    if (data.selectedTeamIds.length < 4) {
+      alert("Please select at least 4 teams.");
       return;
     }
-    const pools: Pool[] = (["A", "B", "C", "D"] as const)
-      .map((name) => {
-        const poolId = `pool_${name}`;
-        const teamIds = poolAssignments[poolId] ?? [];
-        return {
-          id: poolId,
-          name,
-          teamIds,
-          poolTeamOrder: [...teamIds],
-        };
-      })
-      .filter((p) => p.teamIds.length >= 2);
+    const pools = generatePools(data.selectedTeamIds);
     const poolMatches = generateFixedSchedule(pools);
     save({
       pools,
@@ -773,7 +746,6 @@ export function TournamentEngine({
       knockoutMatches: [],
       stage: "pool",
       createdAt: new Date().toISOString(),
-      selectedTeamIds: Object.values(poolAssignments).flat(),
     });
     setTab("pools");
   }
@@ -797,30 +769,7 @@ export function TournamentEngine({
     return m;
   }, [data.pools, data.poolMatches, teams]);
 
-  // Display standings (with manual override applied)
-  const displayStandings = useMemo(() => {
-    const result = new Map<string, Standing[]>();
-    for (const pool of data.pools) {
-      const auto = allStandings.get(pool.id) ?? [];
-      const manual = data.manualPoolRankings?.[pool.id];
-      if (manual && manual.length > 0) {
-        const ordered: Standing[] = [];
-        for (const tid of manual) {
-          const s = auto.find((x) => x.teamId === tid);
-          if (s) ordered.push(s);
-        }
-        for (const s of auto) {
-          if (!manual.includes(s.teamId)) ordered.push(s);
-        }
-        result.set(pool.id, ordered);
-      } else {
-        result.set(pool.id, auto);
-      }
-    }
-    return result;
-  }, [allStandings, data.pools, data.manualPoolRankings]);
-
-  // Qualified teams (top 2 per pool, respects manual rankings)
+  // Qualified teams (top 2 per pool)
   const qualifiedTeams = useMemo(() => {
     const qualified: Array<{
       teamId: string;
@@ -829,7 +778,7 @@ export function TournamentEngine({
       rank: number;
     }> = [];
     for (const pool of data.pools) {
-      const s = displayStandings.get(pool.id) ?? [];
+      const s = allStandings.get(pool.id) ?? [];
       s.slice(0, 2).forEach((standing, i) => {
         qualified.push({
           teamId: standing.teamId,
@@ -840,27 +789,7 @@ export function TournamentEngine({
       });
     }
     return qualified;
-  }, [displayStandings, data.pools]);
-
-  // ── MANUAL RANKING ──────────────────────────────────────────
-
-  function moveRanking(
-    poolId: string,
-    teamId: string,
-    direction: "up" | "down",
-  ) {
-    const current =
-      data.manualPoolRankings?.[poolId] ??
-      (displayStandings.get(poolId) ?? []).map((s) => s.teamId);
-    const arr = [...current];
-    const idx = arr.indexOf(teamId);
-    if (idx === -1) return;
-    if (direction === "up" && idx > 0)
-      [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
-    if (direction === "down" && idx < arr.length - 1)
-      [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
-    save({ manualPoolRankings: { ...data.manualPoolRankings, [poolId]: arr } });
-  }
+  }, [allStandings, data.pools]);
 
   // Check if all pool matches completed → can advance to knockout
   const allPoolMatchesDone = useMemo(() => {
@@ -877,7 +806,7 @@ export function TournamentEngine({
       );
       if (!proceed) return;
     }
-    const kms = generateKnockout(data.pools, displayStandings);
+    const kms = generateKnockout(data.pools, allStandings);
     save({ knockoutMatches: kms, stage: "knockout" });
     setTab("bracket");
   }
@@ -1029,7 +958,11 @@ export function TournamentEngine({
           ? "⚡ Knockout Stage"
           : "🏆 Complete";
 
-  // Preview pools - kept for backward compat but not shown in UI
+  // Preview pool distribution for setup tab
+  const previewPools = React.useMemo(() => {
+    if (data.selectedTeamIds.length < 4) return [];
+    return generatePools(data.selectedTeamIds);
+  }, [data.selectedTeamIds]);
 
   // ─────────────────────────────────────────────────────────────
   // RENDER
@@ -1158,172 +1091,138 @@ export function TournamentEngine({
                 />
               </div>
 
-              {/* Manual Pool Assignment */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
+              {/* Select teams */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
                   <span className="text-white/60 text-xs font-semibold uppercase tracking-wider">
-                    Pool Assignment
+                    Select Teams ({data.selectedTeamIds.length} selected)
                   </span>
-                  <span className="text-white/30 text-[10px]">
-                    {Object.values(poolAssignments).flat().length} /{" "}
-                    {allTeams.length} assigned
-                  </span>
+                  <button
+                    type="button"
+                    onClick={selectAllTeams}
+                    className="text-xs text-primary cursor-pointer hover:underline"
+                  >
+                    Select All
+                  </button>
                 </div>
-
-                {/* Available teams */}
-                {(() => {
-                  const assignedIds = new Set(
-                    Object.values(poolAssignments).flat(),
-                  );
-                  const available = allTeams.filter(
-                    (t) => !assignedIds.has(t.id),
-                  );
-                  return available.length > 0 ? (
-                    <div className="rounded-xl border border-white/10 bg-white/3 p-3">
-                      <p className="text-white/40 text-[10px] font-semibold uppercase mb-2">
-                        Available Teams ({available.length})
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {available.map((t) => (
-                          <span
-                            key={t.id}
-                            className="text-white/50 text-[10px] bg-white/5 border border-white/10 rounded px-2 py-1"
-                          >
-                            {t.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
-
-                {/* 4 Fixed Pool Panels */}
-                {(["A", "B", "C", "D"] as const).map((poolName) => {
-                  const poolId = `pool_${poolName}`;
-                  const assigned = poolAssignments[poolId] ?? [];
-                  const assignedSet = new Set(
-                    Object.values(poolAssignments).flat(),
-                  );
-                  const available = allTeams.filter(
-                    (t) => !assignedSet.has(t.id),
-                  );
-                  return (
-                    <div
-                      key={poolId}
-                      className="rounded-xl border border-primary/20 bg-white/3 p-3"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-primary font-bold text-xs uppercase tracking-wider">
-                          Pool {poolName} ({assigned.length}/5)
-                        </h3>
-                        {assigned.length < 5 && available.length > 0 && (
-                          <select
-                            className="text-[10px] bg-white/10 border border-white/20 rounded px-2 py-1 text-white cursor-pointer"
-                            value=""
-                            onChange={(e) => {
-                              if (!e.target.value) return;
-                              setPoolAssignments((prev) => ({
-                                ...prev,
-                                [poolId]: [
-                                  ...(prev[poolId] ?? []),
-                                  e.target.value,
-                                ],
-                              }));
-                            }}
-                          >
-                            <option value="">+ Add Team</option>
-                            {available.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                      {assigned.length === 0 ? (
-                        <p className="text-white/20 text-[10px] py-2 text-center">
-                          No teams assigned
-                        </p>
-                      ) : (
-                        <div className="space-y-1">
-                          {assigned.map((tid, pos) => {
-                            const team = allTeams.find((t) => t.id === tid);
-                            return (
-                              <div
-                                key={tid}
-                                className="flex items-center gap-2 bg-white/5 rounded-lg px-2 py-1.5"
-                              >
-                                <span className="text-primary font-bold text-[10px] w-4 shrink-0">
-                                  {pos + 1}.
-                                </span>
-                                <span className="text-white text-xs flex-1 font-semibold truncate">
-                                  {team?.name ?? tid}
-                                </span>
-                                <div className="flex gap-1">
-                                  <button
-                                    type="button"
-                                    disabled={pos === 0}
-                                    onClick={() =>
-                                      setPoolAssignments((prev) => {
-                                        const arr = [...(prev[poolId] ?? [])];
-                                        [arr[pos - 1], arr[pos]] = [
-                                          arr[pos],
-                                          arr[pos - 1],
-                                        ];
-                                        return { ...prev, [poolId]: arr };
-                                      })
-                                    }
-                                    className="h-5 w-5 rounded border border-white/20 text-white/50 text-[10px] cursor-pointer hover:bg-white/10 disabled:opacity-20 flex items-center justify-center"
-                                  >
-                                    ↑
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={pos === assigned.length - 1}
-                                    onClick={() =>
-                                      setPoolAssignments((prev) => {
-                                        const arr = [...(prev[poolId] ?? [])];
-                                        [arr[pos], arr[pos + 1]] = [
-                                          arr[pos + 1],
-                                          arr[pos],
-                                        ];
-                                        return { ...prev, [poolId]: arr };
-                                      })
-                                    }
-                                    className="h-5 w-5 rounded border border-white/20 text-white/50 text-[10px] cursor-pointer hover:bg-white/10 disabled:opacity-20 flex items-center justify-center"
-                                  >
-                                    ↓
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setPoolAssignments((prev) => ({
-                                        ...prev,
-                                        [poolId]: (prev[poolId] ?? []).filter(
-                                          (id) => id !== tid,
-                                        ),
-                                      }))
-                                    }
-                                    className="h-5 w-5 rounded border border-red-500/30 text-red-400/70 text-[10px] cursor-pointer hover:bg-red-500/10 flex items-center justify-center"
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                <div className="grid grid-cols-2 gap-2">
+                  {allTeams.map((team) => {
+                    const selected = data.selectedTeamIds.includes(team.id);
+                    return (
+                      <button
+                        key={team.id}
+                        type="button"
+                        onClick={() => toggleTeamSelection(team.id)}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-semibold text-left cursor-pointer transition-all border ${
+                          selected
+                            ? "bg-primary/20 border-primary text-primary"
+                            : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                        }`}
+                      >
+                        {selected && "✓ "}
+                        {team.name}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+
+              {/* Pool distribution preview + Pool Team Order */}
+              {data.selectedTeamIds.length >= 4 && (
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <p className="text-white/50 text-xs mb-2">
+                      {data.selectedTeamIds.length} teams →{" "}
+                      {previewPools.length} pools
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {previewPools.map((pool) => (
+                        <span
+                          key={pool.id}
+                          className="text-xs text-white/70 bg-white/10 px-2 py-1 rounded-lg"
+                        >
+                          Pool {pool.name}: {pool.teamIds.length} teams
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Pool Team Order panels */}
+                  {data.stage !== "setup" && data.pools.length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-white/60 text-xs font-semibold uppercase tracking-wider">
+                        Pool Team Order
+                      </p>
+                      <p className="text-white/40 text-[10px]">
+                        Order defines match positions (Team 1 = first selected).
+                        Reorder to change the fixed schedule.
+                      </p>
+                      {data.pools.map((pool) => (
+                        <div
+                          key={pool.id}
+                          className="rounded-xl border border-white/10 bg-white/3 p-3"
+                        >
+                          <h3 className="text-green-400 font-bold text-xs uppercase tracking-wider mb-2">
+                            Pool {pool.name} — Team Order
+                          </h3>
+                          <div className="space-y-1.5">
+                            {pool.poolTeamOrder.map((tid, pos) => {
+                              const team = teams.find((t) => t.id === tid);
+                              return (
+                                <div
+                                  key={tid}
+                                  className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2"
+                                >
+                                  <span className="text-primary font-bold text-xs w-5 shrink-0">
+                                    {pos + 1}.
+                                  </span>
+                                  <span className="text-white text-xs flex-1 font-semibold">
+                                    {team?.name ?? tid}
+                                  </span>
+                                  {adminUnlocked && (
+                                    <div className="flex gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          moveTeamInPool(pool.id, tid, "up")
+                                        }
+                                        disabled={pos === 0}
+                                        className="h-6 w-6 rounded border border-white/20 text-white/60 text-xs cursor-pointer hover:bg-white/10 disabled:opacity-30 flex items-center justify-center"
+                                        title="Move Up"
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          moveTeamInPool(pool.id, tid, "down")
+                                        }
+                                        disabled={
+                                          pos === pool.poolTeamOrder.length - 1
+                                        }
+                                        className="h-6 w-6 rounded border border-white/20 text-white/60 text-xs cursor-pointer hover:bg-white/10 disabled:opacity-30 flex items-center justify-center"
+                                        title="Move Down"
+                                      >
+                                        ↓
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Create / Reset buttons */}
               <button
                 type="button"
                 onClick={createTournament}
-                disabled={Object.values(poolAssignments).flat().length < 4}
+                disabled={data.selectedTeamIds.length < 4}
                 className="w-full h-12 rounded-xl bg-primary text-black font-bold text-sm cursor-pointer disabled:opacity-40 hover:opacity-90 transition-opacity"
               >
                 🏆 Generate Tournament
@@ -1697,17 +1596,11 @@ export function TournamentEngine({
                 </p>
               )}
               {data.pools.map((pool) => {
-                const standings = displayStandings.get(pool.id) ?? [];
-                const hasManual = !!data.manualPoolRankings?.[pool.id]?.length;
+                const standings = allStandings.get(pool.id) ?? [];
                 return (
                   <div key={pool.id}>
-                    <h2 className="text-primary font-bold text-sm tracking-wider uppercase mb-3 flex items-center gap-2">
+                    <h2 className="text-primary font-bold text-sm tracking-wider uppercase mb-3">
                       Pool {pool.name} — Points Table
-                      {hasManual && (
-                        <span className="text-[9px] text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">
-                          Manual
-                        </span>
-                      )}
                     </h2>
                     <div className="overflow-x-auto rounded-xl border border-white/10">
                       <table className="w-full text-xs">
@@ -1734,18 +1627,15 @@ export function TournamentEngine({
                             <th className="text-center text-white/50 font-semibold px-2 py-2">
                               NRR
                             </th>
-                            {adminUnlocked && (
-                              <th className="text-center text-white/30 font-semibold px-2 py-2 text-[10px]">
-                                ⬆⬇
-                              </th>
-                            )}
                           </tr>
                         </thead>
                         <tbody>
                           {standings.map((s, i) => (
                             <tr
                               key={s.teamId}
-                              className={`border-b border-white/5 ${i < 2 ? "bg-green-500/5" : ""}`}
+                              className={`border-b border-white/5 ${
+                                i < 2 ? "bg-green-500/5" : ""
+                              }`}
                             >
                               <td className="px-3 py-2 text-white/40">
                                 {i + 1}
@@ -1773,45 +1663,19 @@ export function TournamentEngine({
                                 {s.points}
                               </td>
                               <td
-                                className={`px-2 py-2 text-center font-mono text-[10px] ${s.nrr >= 0 ? "text-green-400" : "text-red-400"}`}
+                                className={`px-2 py-2 text-center font-mono text-[10px] ${
+                                  s.nrr >= 0 ? "text-green-400" : "text-red-400"
+                                }`}
                               >
                                 {s.nrr >= 0 ? "+" : ""}
                                 {s.nrr.toFixed(2)}
                               </td>
-                              {adminUnlocked && (
-                                <td className="px-1 py-2">
-                                  <div className="flex gap-0.5">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        moveRanking(pool.id, s.teamId, "up")
-                                      }
-                                      disabled={i === 0}
-                                      className="h-5 w-5 rounded border border-white/20 text-white/50 text-[10px] cursor-pointer hover:bg-white/10 disabled:opacity-20 flex items-center justify-center"
-                                      data-ocid="points.toggle"
-                                    >
-                                      ⬆
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        moveRanking(pool.id, s.teamId, "down")
-                                      }
-                                      disabled={i === standings.length - 1}
-                                      className="h-5 w-5 rounded border border-white/20 text-white/50 text-[10px] cursor-pointer hover:bg-white/10 disabled:opacity-20 flex items-center justify-center"
-                                      data-ocid="points.toggle"
-                                    >
-                                      ⬇
-                                    </button>
-                                  </div>
-                                </td>
-                              )}
                             </tr>
                           ))}
                           {standings.length === 0 && (
                             <tr>
                               <td
-                                colSpan={adminUnlocked ? 8 : 7}
+                                colSpan={7}
                                 className="px-3 py-4 text-center text-white/30 text-xs"
                               >
                                 No stats available
@@ -1821,24 +1685,9 @@ export function TournamentEngine({
                         </tbody>
                       </table>
                     </div>
-                    <div className="flex items-center justify-between mt-1 px-1">
-                      <p className="text-white/30 text-[10px]">
-                        ✓ = Qualified to knockout
-                      </p>
-                      {adminUnlocked && hasManual && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newRankings = { ...data.manualPoolRankings };
-                            delete newRankings[pool.id];
-                            save({ manualPoolRankings: newRankings });
-                          }}
-                          className="text-[10px] text-white/30 cursor-pointer hover:text-white/50"
-                        >
-                          ↺ Reset to auto ranking
-                        </button>
-                      )}
-                    </div>
+                    <p className="text-white/30 text-[10px] mt-1 px-1">
+                      ✓ = Qualified to knockout
+                    </p>
                   </div>
                 );
               })}

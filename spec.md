@@ -1,63 +1,43 @@
-# CCB SCORING PRO — Full Auto Tournament Engine
+# Cholistan Cricket Scorer
 
 ## Current State
-The app has an existing `TournamentView` inside App.tsx (~700 lines) that supports:
-- Manual pool creation (up to 4 pools)
-- Manual team assignment to pools
-- Manual round-robin match generation per pool
-- Score entry by admin
-- Points table / standings tab
-Data saved to `ccb_tournament` in localStorage.
-
-The home dashboard has a 🏆 Tournament card that navigates to view="tournament" which renders the old TournamentView.
+TournamentEngine.tsx (2310 lines) already has:
+- FIXED_5_TEAM_SCHEDULE array (correct 10-match pattern)
+- generateFixedSchedule() uses poolTeamOrder
+- moveTeamInPool() with ↑↓ in setup tab (only shows AFTER tournament is generated)
+- calcStandings() sorts by points then NRR — missing admin-order tie-breaker
+- No manual ranking in points table
+- Pool generation is auto-distributed (generatePools() divides teams evenly)
+- Data saves to STORAGE_KEY on state change via useEffect
 
 ## Requested Changes (Diff)
 
 ### Add
-- `TournamentEngine.tsx` — new standalone component with full auto-tournament logic
-- New localStorage key `ccb_tournament_v2` for engine data (preserves old `ccb_tournament`)
-- Auto pool generation (20 teams → 4 pools ×5, 16 → 4×4, 8 → 2×4)
-- Auto round-robin schedule within each pool
-- Pool match tags: "Pool A Match", "Pool B Match", etc.
-- Night Match toggle per match (shows 🌙 label, signals 5 overs when starting)
-- Points Table (Win=2, Loss=0, NRR) — public, auto-updated from completed matches
-- Qualification: top 2 per pool qualify
-- Auto Knockout bracket: QF cross-pool seeding (A1 vs C2, A2 vs C1, B1 vs D2, B2 vs D1)
-- Semi Finals: QF1W vs QF2W, QF3W vs QF4W
-- Final: SF1W vs SF2W
-- Visual bracket screen (QF / SF / Final)
-- Tournament Status Bar: Pool Stage → Knockout → Final
-- Match tags: Pool Match / Quarter Final / Semi Final / Final
-- Admin Override: admin can manually set winner/score for any match (requires Shahzad@99)
-- Safe Edit: edited matches flagged as `isManual=true`, rest of system unaffected
-- Match Linking: pool matches & knockout matches store `linkedMatchId` referencing a `MatchRecord.id`
-- Auto-sync: when a match completes in scoring system, tournament engine auto-updates the corresponding tournament match if teams match
-- `onStartMatch` callback: starts a match from tournament with pre-selected teams and correct overs
-- `pendingTournamentMatchId` state in App.tsx to link scoring match back to tournament
+- Manual pool assignment UI in Setup tab: 4 fixed pool panels (A/B/C/D) shown BEFORE generating tournament. Each panel shows assigned teams with 1-5 numbering. Admin adds/removes teams from each pool. Teams not yet assigned shown in "Available" list.
+- `manualPoolRankings` field in EngineData: `Record<string, string[]>` — stores admin-overridden ranking order per pool (keyed by poolId)
+- Move Up / Move Down buttons in Points Table rows (admin only) — adjusts `manualPoolRankings`, overriding auto-calculated order
+- Visual badge on manually ranked rows: "Manual" indicator
 
 ### Modify
-- App.tsx: replace `<TournamentView>` block with `<TournamentEngine>` for view="tournament"
-- App.tsx: add `tournamentV2` state (loaded from `ccb_tournament_v2`)
-- App.tsx: in `handleInnings2End`, auto-sync completed match to tournament engine
-- App.tsx: add `onStartMatch` handler that pre-selects teams and overs in setup view
+- `calcStandings(pool, matches, teams, manualOrder?)`: add third sort key after points+NRR → fall back to pool.poolTeamOrder index (admin-defined position) when points AND NRR are equal
+- `createTournament()`: use manually assigned pool teams (from new pool assignment UI state) instead of generatePools() auto-distribution
+- Points table display: if `manualPoolRankings[pool.id]` exists, render in that order instead of auto-calculated order; show Move Up/Down buttons for admin
+- Data save: ensure ccb_backup is written BEFORE overwriting STORAGE_KEY on every save
+- On load error: restore from ccb_backup automatically
+- generateFixedSchedule: enforce that poolTeamOrder is always exactly 5 entries; if pool has <5 or >5 teams, still generate correctly
 
 ### Remove
-- Nothing removed. Old `TournamentView` function remains in App.tsx (unused but not deleted for safety)
+- Auto pool distribution logic from `createTournament()` (replace with manual assignment)
+- `generatePools()` function (no longer needed since pools are always fixed A/B/C/D)
 
 ## Implementation Plan
-1. Create `src/frontend/src/components/TournamentEngine.tsx`
-   - Types: TPoolMatch, KnockoutMatch, EngineData
-   - Utils: generatePools, generateRoundRobin, calcStandings, generateKnockout, autoProgressKnockout
-   - 5 tabs: Setup, Pool Matches, Points Table, Qualified, Bracket
-   - Load from / save to `ccb_tournament_v2`
-   - `useEffect` on `completedMatches` for auto-sync
-   - Admin password gate for result entry and overrides
-
-2. Patch App.tsx (minimal changes):
-   - Import TournamentEngine
-   - Add `tournamentV2` useState (loaded from ccb_tournament_v2)
-   - Add `pendingTournamentMatchId` useRef
-   - Add `handleUpdateTournamentV2` save function
-   - Modify `handleInnings2End` to call `autoSyncTournamentMatch(record)`
-   - Add `handleTournamentStartMatch` handler
-   - Replace the `{view === 'tournament' && <TournamentView ...>}` block
+1. Add `manualPoolRankings: Record<string, string[]>` to EngineData type and EMPTY_ENGINE
+2. Add pool assignment state: `poolAssignments: Record<string, string[]>` as local React state (4 pools: pool_A, pool_B, pool_C, pool_D)
+3. In Setup tab: show 4 pool panels BEFORE the Generate button. Each panel has numbered team list (1-5) with ↑↓ buttons to reorder, and an "Add Team" button showing unassigned teams. Teams already assigned to a pool can't be added to another.
+4. Update `createTournament()` to build pools from poolAssignments state, skipping generatePools()
+5. Initialize `poolAssignments` from `data.pools` if tournament already exists (so reload works)
+6. Fix `calcStandings` sort: `b.points - a.points || b.nrr - a.nrr || pool.poolTeamOrder.indexOf(a.teamId) - pool.poolTeamOrder.indexOf(b.teamId)`
+7. In Points Table tab: if `adminUnlocked && data.manualPoolRankings[pool.id]`, render standings in manual order. Add ⬆/⬇ buttons per row. On click: update `manualPoolRankings[pool.id]`, save.
+8. If `manualPoolRankings[pool.id]` is set, use that order for display AND for getTop2() qualification. Auto-sort still happens but manual order overrides final display.
+9. Fix save useEffect: write `ccb_backup` FIRST then STORAGE_KEY
+10. Fix load: if STORAGE_KEY parse fails, try ccb_backup before returning EMPTY_ENGINE
