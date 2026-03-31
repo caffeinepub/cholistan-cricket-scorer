@@ -1,43 +1,65 @@
 # Cholistan Cricket Scorer
 
 ## Current State
-TournamentEngine.tsx (2310 lines) already has:
-- FIXED_5_TEAM_SCHEDULE array (correct 10-match pattern)
-- generateFixedSchedule() uses poolTeamOrder
-- moveTeamInPool() with ↑↓ in setup tab (only shows AFTER tournament is generated)
-- calcStandings() sorts by points then NRR — missing admin-order tie-breaker
-- No manual ranking in points table
-- Pool generation is auto-distributed (generatePools() divides teams evenly)
-- Data saves to STORAGE_KEY on state change via useEffect
+
+A full-featured cricket scoring PWA (v74) with:
+- `src/frontend/src/App.tsx` (~11,000 lines) — main app with all views
+- `src/frontend/src/components/TournamentEngine.tsx` (~2,544 lines) — tournament pool/schedule/bracket system
+- HomeView with admin login, cards, install PWA button
+- SetupView for team/overs selection (teamA, teamB from dropdown, overs buttons)
+- ScoringView for ball-by-ball scoring with editable batsman/bowler names
+- `initInnings(batting, bowling)` hardcodes `batting.players[0]` and `batting.players[1]` as initial batsmen
+- `handleStartMatch` goes directly from setup → scoring with no player selection step
+- `handleStart2nd` goes directly innings-switch → scoring with no player selection step
+- TournamentEngine receives only `teams` (20 default teams) — no `myTeams`
+- Schedule edit mode has ↑↓ move, ⇄ swap, 🕐 time buttons — but NO delete or add match
+- Match 10 schedule is correct `[1,3]` (Team2 vs Team4) but display fails when teams are My Teams (not in `teams` array)
+- No Copy Link button on Home
+- No combined Default+My Teams in tournament pool assignment
 
 ## Requested Changes (Diff)
 
 ### Add
-- Manual pool assignment UI in Setup tab: 4 fixed pool panels (A/B/C/D) shown BEFORE generating tournament. Each panel shows assigned teams with 1-5 numbering. Admin adds/removes teams from each pool. Teams not yet assigned shown in "Available" list.
-- `manualPoolRankings` field in EngineData: `Record<string, string[]>` — stores admin-overridden ranking order per pool (keyed by poolId)
-- Move Up / Move Down buttons in Points Table rows (admin only) — adjusts `manualPoolRankings`, overriding auto-calculated order
-- Visual badge on manually ranked rows: "Manual" indicator
+- **PlayerSelectionView** (new screen/step between setup and scoring): after selecting teams & overs, show a "Select Players" screen where:
+  - Striker: `<select>` from batting team's player list + inline edit text button
+  - Non-Striker: `<select>` from batting team's player list + inline edit text button  
+  - Bowler: `<select>` from bowling team's player list + inline edit text button
+  - If batting team has 0 players → show text input directly (fallback)
+  - If bowling team has 0 players → show text input directly (fallback)
+  - Both select-from-list and edit/type manually available simultaneously
+  - "Start Match" button proceeds to scoring with selected players
+- **Copy Link button** in HomeView hero section: `navigator.clipboard.writeText(window.location.href)`, shows "Copied!" toast for 2 seconds
+- **Delete Match button** (🗑) per match in TournamentEngine edit schedule mode (admin only), removes match from `poolMatches`
+- **+ Add Match button** in TournamentEngine edit schedule mode (admin only), opens a modal to pick Home Team + Away Team from both Default Teams and My Teams (shown as separate `<optgroup>` sections)
+- **myTeams prop** to TournamentEngine so it can reference user-created team names/IDs
 
 ### Modify
-- `calcStandings(pool, matches, teams, manualOrder?)`: add third sort key after points+NRR → fall back to pool.poolTeamOrder index (admin-defined position) when points AND NRR are equal
-- `createTournament()`: use manually assigned pool teams (from new pool assignment UI state) instead of generatePools() auto-distribution
-- Points table display: if `manualPoolRankings[pool.id]` exists, render in that order instead of auto-calculated order; show Move Up/Down buttons for admin
-- Data save: ensure ccb_backup is written BEFORE overwriting STORAGE_KEY on every save
-- On load error: restore from ccb_backup automatically
-- generateFixedSchedule: enforce that poolTeamOrder is always exactly 5 entries; if pool has <5 or >5 teams, still generate correctly
+- `handleStartMatch(teamA, teamB, overs)` in App.tsx: instead of calling `initInnings` directly and going to "scoring", store teamA/teamB/overs in state and go to new "player-selection" view
+- `handleStart2nd()` in App.tsx: instead of calling `initInnings` directly and going to "scoring", go to new "player-selection-2nd" view (same PlayerSelectionView but for 2nd innings)
+- `initInnings` to accept optional striker/nonStriker/bowler initial values instead of hardcoding `players[0]` and `players[1]`
+- TournamentEngine `teams` lookup for match display: use `allTeams = [...teams, ...(myTeams ?? [])]` so My Teams don't show as undefined
+- TournamentEngine pool assignment (Setup tab): show both Default Teams and My Teams in team picker dropdowns (separate sections)
+- TournamentEngine `TournamentEngineProps`: add optional `myTeams?: { id: string; name: string; players: any[] }[]`
+- App.tsx render of `<TournamentEngine>`: pass `myTeams={myTeams}` prop
+- UI Polish: improve card padding/gap, larger button min-heights (48px+), add subtle glow on active/hover states, smooth framer-motion transitions where absent
 
 ### Remove
-- Auto pool distribution logic from `createTournament()` (replace with manual assignment)
-- `generatePools()` function (no longer needed since pools are always fixed A/B/C/D)
+- Nothing removed
 
 ## Implementation Plan
-1. Add `manualPoolRankings: Record<string, string[]>` to EngineData type and EMPTY_ENGINE
-2. Add pool assignment state: `poolAssignments: Record<string, string[]>` as local React state (4 pools: pool_A, pool_B, pool_C, pool_D)
-3. In Setup tab: show 4 pool panels BEFORE the Generate button. Each panel has numbered team list (1-5) with ↑↓ buttons to reorder, and an "Add Team" button showing unassigned teams. Teams already assigned to a pool can't be added to another.
-4. Update `createTournament()` to build pools from poolAssignments state, skipping generatePools()
-5. Initialize `poolAssignments` from `data.pools` if tournament already exists (so reload works)
-6. Fix `calcStandings` sort: `b.points - a.points || b.nrr - a.nrr || pool.poolTeamOrder.indexOf(a.teamId) - pool.poolTeamOrder.indexOf(b.teamId)`
-7. In Points Table tab: if `adminUnlocked && data.manualPoolRankings[pool.id]`, render standings in manual order. Add ⬆/⬇ buttons per row. On click: update `manualPoolRankings[pool.id]`, save.
-8. If `manualPoolRankings[pool.id]` is set, use that order for display AND for getTop2() qualification. Auto-sort still happens but manual order overrides final display.
-9. Fix save useEffect: write `ccb_backup` FIRST then STORAGE_KEY
-10. Fix load: if STORAGE_KEY parse fails, try ccb_backup before returning EMPTY_ENGINE
+
+1. **App.tsx — new player-selection view type**: add `"player-selection"` and `"player-selection-2nd"` to the `View` union type
+2. **App.tsx — state for pending match**: add state `pendingMatchSetup: { teamA: Team; teamB: Team; overs: number } | null`
+3. **App.tsx — handleStartMatch**: set `pendingMatchSetup` + go to `"player-selection"` instead of calling `initInnings`
+4. **App.tsx — handleStart2nd**: go to `"player-selection-2nd"` instead of calling `initInnings`
+5. **App.tsx — PlayerSelectionView component** (~100 lines): props `{ battingTeam, bowlingTeam, inningsNum, onBack, onStart(strikerName, nonStrikerName, bowlerName) }`. For each of the 3 roles: if team has ≥1 player, show `<select>` with player names + a toggle to switch to text input. If team has 0 players, show text input directly. Submit calls `onStart`.
+6. **App.tsx — handlePlayerSelectionStart**: called by PlayerSelectionView onStart. Creates custom Players from the names selected, calls `initInnings` with those players, goes to scoring.
+7. **App.tsx — initInnings**: accept optional `initialStriker?: string` and `initialNonStriker?: string` and `initialBowler?: string` params; use them if provided, fall back to `players[0]`/`players[1]`
+8. **App.tsx — HomeView**: add Copy Link button in the hero action buttons row. Use `navigator.clipboard.writeText(window.location.href)` with 2s "Copied!" state.
+9. **TournamentEngine.tsx — props**: add `myTeams?: { id: string; name: string; players: any[] }[]` to `TournamentEngineProps`
+10. **TournamentEngine.tsx — allTeams**: replace `const allTeams = teams` with `const allTeams = [...teams, ...(myTeams ?? [])]`
+11. **TournamentEngine.tsx — deleteMatch**: add `function deleteMatch(matchId)` that removes from `poolMatches`, marks neighbors as isManual
+12. **TournamentEngine.tsx — addMatch modal**: add state `showAddMatchModal`, form with homeTeamId/awayTeamId selects (both optgroups: Default Teams + My Teams). On submit, push a new `TPoolMatch` with `isManual: true` and next matchNumber.
+13. **TournamentEngine.tsx — edit controls UI**: add 🗑 Delete and + Add Match buttons alongside existing ↑↓ ⇄ 🕐 controls
+14. **TournamentEngine.tsx — Match 10 null fix**: all team name lookups now use `allTeams` not `teams`, preventing undefined display
+15. **Data safety**: all existing save/backup patterns unchanged; new player selection names persist through initInnings state

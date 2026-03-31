@@ -5,15 +5,33 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { toPng as htmlToPng } from "html-to-image";
-// html-to-image loaded as npm package (reliable on Android Chrome)
+// html-to-image loaded dynamically (CDN fallback)
 async function loadToPng(): Promise<
   (node: HTMLElement, opts?: Record<string, unknown>) => Promise<string>
 > {
-  return htmlToPng as (
-    node: HTMLElement,
-    opts?: Record<string, unknown>,
-  ) => Promise<string>;
+  // Use window.html2canvas loaded via CDN script tag (see loadHtml2Canvas)
+  return async (node: HTMLElement, opts?: Record<string, unknown>) => {
+    if (!(window as any).html2canvas) {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src =
+          "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error("html2canvas load failed"));
+        document.head.appendChild(s);
+      });
+    }
+    const h2c = (window as any).html2canvas as (
+      el: HTMLElement,
+      o?: Record<string, unknown>,
+    ) => Promise<HTMLCanvasElement>;
+    const canvas = await h2c(node, {
+      scale: 2,
+      backgroundColor: "#000000",
+      ...(opts ?? {}),
+    });
+    return canvas.toDataURL("image/png");
+  };
 }
 // html2canvas loaded dynamically from CDN (for PDF)
 // jsPDF loaded dynamically from CDN
@@ -78,6 +96,7 @@ type View =
   | "home"
   | "teams"
   | "setup"
+  | "player-selection"
   | "scoring"
   | "innings-switch"
   | "result"
@@ -265,6 +284,14 @@ function formatOvers(balls: number): string {
 }
 
 function initInnings(batting: Team, bowling: Team): InningsState {
+  const p0: Player = batting.players[0] ?? {
+    id: "p_placeholder_0",
+    name: "Batsman 1",
+  };
+  const p1: Player = batting.players[1] ?? {
+    id: "p_placeholder_1",
+    name: "Batsman 2",
+  };
   return {
     battingTeam: batting,
     bowlingTeam: bowling,
@@ -273,14 +300,14 @@ function initInnings(batting: Team, bowling: Team): InningsState {
     balls: 0,
     activeBatsmen: [
       {
-        player: batting.players[0],
+        player: p0,
         runs: 0,
         balls: 0,
         isStriker: true,
         isOut: false,
       },
       {
-        player: batting.players[1],
+        player: p1,
         runs: 0,
         balls: 0,
         isStriker: false,
@@ -884,6 +911,28 @@ function HomeView({
   const [pwaInstalled, setPwaInstalled] = useState(
     () => !!(window as any).__pwaInstalled,
   );
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  function handleCopyLink() {
+    navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2000);
+      })
+      .catch(() => {
+        try {
+          const el = document.createElement("input");
+          el.value = window.location.href;
+          document.body.appendChild(el);
+          el.select();
+          document.execCommand("copy");
+          document.body.removeChild(el);
+        } catch {}
+        setLinkCopied(true);
+        setTimeout(() => setLinkCopied(false), 2000);
+      });
+  }
 
   useEffect(() => {
     // Pick up prompt if already captured globally before React mounted
@@ -1200,17 +1249,17 @@ function HomeView({
         )}
 
         {/* PWA + Share Row */}
-        {!pwaInstalled && (
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              justifyContent: "center",
-              flexWrap: "wrap",
-              width: "100%",
-              maxWidth: "24rem",
-            }}
-          >
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            justifyContent: "center",
+            flexWrap: "wrap",
+            width: "100%",
+            maxWidth: "24rem",
+          }}
+        >
+          {!pwaInstalled && (
             <button
               type="button"
               data-ocid="home.share_app.button"
@@ -1231,8 +1280,30 @@ function HomeView({
             >
               <Share2 size={13} /> Share App
             </button>
-          </div>
-        )}
+          )}
+          <motion.button
+            type="button"
+            data-ocid="home.copy_link.button"
+            whileTap={{ scale: 0.95 }}
+            onClick={handleCopyLink}
+            style={{
+              background: linkCopied ? "rgba(0,230,118,0.2)" : "transparent",
+              color: linkCopied ? "#00e676" : "rgba(255,255,255,0.6)",
+              fontWeight: 600,
+              fontSize: "0.82rem",
+              border: `1px solid ${linkCopied ? "rgba(0,230,118,0.5)" : "rgba(255,255,255,0.2)"}`,
+              borderRadius: 12,
+              padding: "8px 14px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              transition: "all 0.2s",
+            }}
+          >
+            {linkCopied ? "✅ Copied!" : "🔗 Copy Link"}
+          </motion.button>
+        </div>
 
         {/* Dashboard Icon Cards Grid */}
         <div className="w-full max-w-sm grid grid-cols-2 gap-4">
@@ -2746,6 +2817,255 @@ function SetupView({ onBack, onStart, teams, myTeams = [] }: SetupViewProps) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// PLAYER SELECTION VIEW
+// ──────────────────────────────────────────────────────────────
+
+interface PlayerSelectionViewProps {
+  battingTeam: Team;
+  bowlingTeam: Team;
+  inningsNum: 1 | 2;
+  onBack: () => void;
+  onConfirm: (striker: string, nonStriker: string, bowler: string) => void;
+}
+
+function PlayerPicker({
+  label,
+  value,
+  onChange,
+  mode,
+  setMode,
+  players,
+  ocid,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  mode: "select" | "edit";
+  setMode: (m: "select" | "edit") => void;
+  players: Player[];
+  ocid: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label htmlFor={ocid} className="text-white font-semibold text-sm">
+          {label}
+        </label>
+        {players.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setMode(mode === "select" ? "edit" : "select")}
+            className="text-xs px-2 py-1 rounded-lg border cursor-pointer transition-colors"
+            style={{
+              borderColor:
+                mode === "edit"
+                  ? "rgba(0,230,118,0.5)"
+                  : "rgba(255,255,255,0.2)",
+              color: mode === "edit" ? "#00e676" : "rgba(255,255,255,0.5)",
+              background: "transparent",
+            }}
+          >
+            {mode === "select" ? "✏️ Edit" : "📋 List"}
+          </button>
+        )}
+      </div>
+      {mode === "select" && players.length > 0 ? (
+        <select
+          data-ocid={ocid}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full border text-white text-sm rounded-xl px-4 py-3 outline-none cursor-pointer"
+          style={{
+            background: "#0a1a0f",
+            borderColor: "rgba(0,230,118,0.25)",
+          }}
+        >
+          <option value="" disabled style={{ background: "#111" }}>
+            Select player...
+          </option>
+          {players.map((p) => (
+            <option key={p.id} value={p.name} style={{ background: "#111" }}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input
+          data-ocid={`${ocid}_input`}
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`Enter ${label.toLowerCase()} name...`}
+          className="w-full border text-white text-sm rounded-xl px-4 py-3 outline-none"
+          style={{
+            background: "#0a1a0f",
+            borderColor: "rgba(0,230,118,0.25)",
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PlayerSelectionView({
+  battingTeam,
+  bowlingTeam,
+  inningsNum,
+  onBack,
+  onConfirm,
+}: PlayerSelectionViewProps) {
+  const battingPlayers = battingTeam.players ?? [];
+  const bowlingPlayers = bowlingTeam.players ?? [];
+
+  const [strikerMode, setStrikerMode] = useState<"select" | "edit">(
+    battingPlayers.length > 0 ? "select" : "edit",
+  );
+  const [nonStrikerMode, setNonStrikerMode] = useState<"select" | "edit">(
+    battingPlayers.length > 0 ? "select" : "edit",
+  );
+  const [bowlerMode, setBowlerMode] = useState<"select" | "edit">(
+    bowlingPlayers.length > 0 ? "select" : "edit",
+  );
+
+  const [striker, setStriker] = useState(battingPlayers[0]?.name ?? "");
+  const [nonStriker, setNonStriker] = useState(battingPlayers[1]?.name ?? "");
+  const [bowler, setBowler] = useState(bowlingPlayers[0]?.name ?? "");
+  const [error, setError] = useState("");
+
+  function handleConfirm() {
+    if (!striker.trim() || !nonStriker.trim() || !bowler.trim()) {
+      setError("Please fill all three fields.");
+      return;
+    }
+    if (striker.trim() === nonStriker.trim()) {
+      setError("Striker and Non-Striker must be different players.");
+      return;
+    }
+    setError("");
+    onConfirm(striker.trim(), nonStriker.trim(), bowler.trim());
+  }
+
+  return (
+    <Page>
+      <header
+        className="flex items-center gap-3 px-4 pt-8 pb-4"
+        style={{ borderBottom: "1px solid rgba(0,230,118,0.2)" }}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-primary p-2 rounded-lg cursor-pointer border-0 bg-transparent"
+          style={{ color: "#00e676" }}
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <div>
+          <h2
+            className="font-bold text-xl tracking-wide"
+            style={{ color: "#00e676" }}
+          >
+            SELECT PLAYERS
+          </h2>
+          <p className="text-xs" style={{ color: "rgba(255,255,255,0.5)" }}>
+            {inningsNum === 1
+              ? `${battingTeam.name} batting`
+              : `2nd Innings — ${battingTeam.name} batting`}
+          </p>
+        </div>
+      </header>
+
+      <main className="flex-1 px-4 py-6 overflow-y-auto">
+        <div className="max-w-md mx-auto space-y-6">
+          {/* Team info banner */}
+          <div
+            className="rounded-xl px-4 py-3"
+            style={{
+              background: "rgba(0,230,118,0.06)",
+              border: "1px solid rgba(0,230,118,0.2)",
+            }}
+          >
+            <p className="font-bold text-sm" style={{ color: "#00e676" }}>
+              🏏 Batting: {battingTeam.name}
+            </p>
+            <p
+              className="text-xs mt-0.5"
+              style={{ color: "rgba(255,255,255,0.4)" }}
+            >
+              vs 🎯 Bowling: {bowlingTeam.name}
+            </p>
+          </div>
+
+          {/* Striker */}
+          <PlayerPicker
+            label="🏏 Striker (Opener)"
+            value={striker}
+            onChange={setStriker}
+            mode={strikerMode}
+            setMode={setStrikerMode}
+            players={battingPlayers}
+            ocid="player-selection.striker.select"
+          />
+
+          {/* Non-Striker */}
+          <PlayerPicker
+            label="🏃 Non-Striker"
+            value={nonStriker}
+            onChange={setNonStriker}
+            mode={nonStrikerMode}
+            setMode={setNonStrikerMode}
+            players={battingPlayers}
+            ocid="player-selection.non_striker.select"
+          />
+
+          {/* Bowler */}
+          <PlayerPicker
+            label="🎯 Opening Bowler"
+            value={bowler}
+            onChange={setBowler}
+            mode={bowlerMode}
+            setMode={setBowlerMode}
+            players={bowlingPlayers}
+            ocid="player-selection.bowler.select"
+          />
+
+          {/* Error */}
+          {error && (
+            <p
+              data-ocid="player-selection.error_state"
+              className="text-sm rounded-lg px-3 py-2"
+              style={{
+                color: "#f87171",
+                background: "rgba(239,68,68,0.1)",
+                border: "1px solid rgba(239,68,68,0.3)",
+              }}
+            >
+              ⚠️ {error}
+            </p>
+          )}
+
+          {/* Confirm button */}
+          <motion.button
+            type="button"
+            data-ocid="player-selection.start.button"
+            whileTap={{ scale: 0.97 }}
+            onClick={handleConfirm}
+            className="w-full font-bold text-xl text-black border-0 cursor-pointer tracking-wider rounded-xl"
+            style={{
+              minHeight: 56,
+              background: "linear-gradient(135deg, #00e676, #00b248)",
+              boxShadow: "0 0 24px rgba(0,230,118,0.4)",
+            }}
+          >
+            START INNINGS 🏏
+          </motion.button>
+        </div>
+      </main>
+      <Footer />
+    </Page>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────
 // SCORING VIEW
 // ──────────────────────────────────────────────────────────────
 
@@ -2757,6 +3077,7 @@ interface ScoringViewProps {
   onUpdate: (newInnings: InningsState) => void;
   onInningsEnd: (finalInnings: InningsState) => void;
   onHome: () => void;
+  initialBowlerName?: string;
 }
 
 function ScoringView({
@@ -2767,9 +3088,12 @@ function ScoringView({
   onUpdate,
   onInningsEnd,
   onHome,
+  initialBowlerName,
 }: ScoringViewProps) {
   const [undoStack, setUndoStack] = useState<InningsState[]>([]);
-  const [bowlerName, setBowlerName] = useState(innings.bowlingTeam.name);
+  const [bowlerName, setBowlerName] = useState(
+    initialBowlerName || innings.bowlingTeam.name,
+  );
 
   // Write live match data to localStorage for LiveMatchView
   useEffect(() => {
@@ -10259,6 +10583,13 @@ export default function App() {
   const [pastMatches, setPastMatches] = useState<MatchRecord[]>([]);
   // biome-ignore lint/correctness/noUnusedVariables: legacy tournament state kept for data compatibility
   const [tournament, setTournament] = useState<Tournament>(EMPTY_TOURNAMENT);
+  const [pendingMatchSetup, setPendingMatchSetup] = useState<{
+    teamA: Team;
+    teamB: Team;
+    overs: number;
+    isSecondInnings?: boolean;
+  } | null>(null);
+  const [pendingInitialBowler, setPendingInitialBowler] = useState<string>("");
 
   const [matchInfoCards, setMatchInfoCards] = useState<MatchInfoCard[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("home");
@@ -10567,11 +10898,8 @@ export default function App() {
     setSetupTeamA(teamA);
     setSetupTeamB(teamB);
     setSetupOvers(overs);
-    const i1 = initInnings(teamA, teamB);
-    setInnings1(i1);
-    setInnings2(null);
-    setCurrentInningsNum(1);
-    setView("scoring");
+    setPendingMatchSetup({ teamA, teamB, overs, isSecondInnings: false });
+    setView("player-selection");
   }
 
   function handleInnings1End(finalInnings: InningsState) {
@@ -10581,9 +10909,54 @@ export default function App() {
 
   function handleStart2nd() {
     if (!innings1) return;
-    const i2 = initInnings(innings1.bowlingTeam, innings1.battingTeam);
-    setInnings2(i2);
-    setCurrentInningsNum(2);
+    const battingTeam = innings1.bowlingTeam;
+    const bowlingTeam = innings1.battingTeam;
+    setPendingMatchSetup({
+      teamA: battingTeam,
+      teamB: bowlingTeam,
+      overs: setupOvers,
+      isSecondInnings: true,
+    });
+    setView("player-selection");
+  }
+
+  function handlePlayerSelectionConfirm(
+    strikerName: string,
+    nonStrikerName: string,
+    bowlerName: string,
+  ) {
+    if (!pendingMatchSetup) return;
+    const { teamA, teamB, overs: _overs, isSecondInnings } = pendingMatchSetup;
+
+    const strikerPlayer: Player = {
+      id: `p_sel_${Date.now()}_1`,
+      name: strikerName,
+    };
+    const nonStrikerPlayer: Player = {
+      id: `p_sel_${Date.now()}_2`,
+      name: nonStrikerName,
+    };
+
+    const innings = initInnings(teamA, teamB);
+    const updatedInnings: InningsState = {
+      ...innings,
+      activeBatsmen: [
+        { ...innings.activeBatsmen[0], player: strikerPlayer },
+        { ...innings.activeBatsmen[1], player: nonStrikerPlayer },
+      ],
+    };
+
+    if (!isSecondInnings) {
+      setInnings1(updatedInnings);
+      setInnings2(null);
+      setCurrentInningsNum(1);
+    } else {
+      setInnings2(updatedInnings);
+      setCurrentInningsNum(2);
+    }
+
+    setPendingInitialBowler(bowlerName);
+    setPendingMatchSetup(null);
     setView("scoring");
   }
 
@@ -10799,6 +11172,22 @@ export default function App() {
           />
         )}
 
+        {view === "player-selection" && pendingMatchSetup && (
+          <PlayerSelectionView
+            key="player-selection"
+            battingTeam={pendingMatchSetup.teamA}
+            bowlingTeam={pendingMatchSetup.teamB}
+            inningsNum={pendingMatchSetup.isSecondInnings ? 2 : 1}
+            onBack={() => {
+              setPendingMatchSetup(null);
+              setView(
+                pendingMatchSetup?.isSecondInnings ? "innings-switch" : "setup",
+              );
+            }}
+            onConfirm={handlePlayerSelectionConfirm}
+          />
+        )}
+
         {view === "scoring" && activeInnings && (
           <ScoringView
             key={`scoring-${currentInningsNum}`}
@@ -10808,6 +11197,7 @@ export default function App() {
             target={target}
             onUpdate={(next) => setActiveInnings(next)}
             onHome={() => setView("home")}
+            initialBowlerName={pendingInitialBowler || undefined}
             onInningsEnd={
               currentInningsNum === 1 ? handleInnings1End : handleInnings2End
             }
@@ -10838,6 +11228,7 @@ export default function App() {
             key="tournament"
             onBack={() => setView("home")}
             teams={teams}
+            myTeams={myTeams}
             completedMatches={pastMatches}
             isAdmin={isAdminUnlocked}
             onStartMatch={handleTournamentStartMatch}

@@ -102,6 +102,26 @@ const FIXED_5_TEAM_SCHEDULE: [number, number][] = [
   [1, 3], // Match 10: Team2 vs Team4
 ];
 
+// Converts "4.3" (4 overs 3 balls) → 27 balls. Pure integer input like "27" is returned as-is.
+function parseOvers(str: string): number {
+  const trimmed = str.trim();
+  if (!trimmed) return 0;
+  if (trimmed.includes(".")) {
+    const parts = trimmed.split(".");
+    const overs = Math.floor(Math.abs(Number(parts[0]))) || 0;
+    const balls = Math.min(Math.abs(Number(parts[1] || "0")), 5);
+    return overs * 6 + balls;
+  }
+  return Math.abs(Number.parseInt(trimmed)) || 0;
+}
+
+// Converts balls back to "X.Y" overs notation for display
+function ballsToOversStr(balls: number): string {
+  const ov = Math.floor(balls / 6);
+  const b = balls % 6;
+  return b === 0 ? `${ov}.0` : `${ov}.${b}`;
+}
+
 interface CompletedMatch {
   id: string;
   teamA: { id: string; name: string };
@@ -122,6 +142,11 @@ export interface StartMatchParams {
 export interface TournamentEngineProps {
   onBack: () => void;
   teams: Team[];
+  myTeams?: {
+    id: string;
+    name: string;
+    players: { id: string; name: string }[];
+  }[];
   completedMatches: CompletedMatch[];
   isAdmin: boolean;
   onStartMatch?: (params: StartMatchParams) => void;
@@ -515,6 +540,7 @@ type EngineTab = "setup" | "pools" | "table" | "qualified" | "bracket";
 export function TournamentEngine({
   onBack,
   teams,
+  myTeams,
   completedMatches,
   isAdmin: externalAdmin,
   onStartMatch,
@@ -581,6 +607,8 @@ export function TournamentEngine({
     awayRuns: string;
     homeBalls: string;
     awayBalls: string;
+    homeOvers: string;
+    awayOvers: string;
     totalOvers: string;
     isKnockout: boolean;
     winnerId: string;
@@ -588,6 +616,10 @@ export function TournamentEngine({
 
   const [resetConfirm, setResetConfirm] = useState(false);
   const [editScheduleMode, setEditScheduleMode] = useState(false);
+  const [showAddMatchDlg, setShowAddMatchDlg] = useState(false);
+  const [addMatchPoolId, setAddMatchPoolId] = useState("pool_A");
+  const [addMatchHome, setAddMatchHome] = useState("");
+  const [addMatchAway, setAddMatchAway] = useState("");
   const [editingTimeMatchId, setEditingTimeMatchId] = useState<string | null>(
     null,
   );
@@ -614,6 +646,7 @@ export function TournamentEngine({
           JSON.stringify(data.knockoutMatches),
         );
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        localStorage.setItem("ccb_tournament", JSON.stringify(data));
         prevDataRef.current = data;
       } catch (e) {
         console.error("Save error", e);
@@ -664,7 +697,14 @@ export function TournamentEngine({
 
   // ── SETUP ────────────────────────────────────────────────────
 
-  const allTeams = teams;
+  const allTeams = [
+    ...teams,
+    ...(myTeams ?? []).map((mt) => ({
+      id: mt.id,
+      name: mt.name,
+      players: mt.players.map((p) => ({ id: p.id, name: p.name })),
+    })),
+  ];
 
   // ── POOL TEAM ORDER ──────────────────────────────────────────
 
@@ -710,10 +750,13 @@ export function TournamentEngine({
     if (idx === -1) return;
     if (direction === "up" && idx > 0) {
       [matches[idx - 1], matches[idx]] = [matches[idx], matches[idx - 1]];
+      // mark the match that moved (now at idx-1)
+      matches[idx - 1] = { ...matches[idx - 1], isManual: true };
     } else if (direction === "down" && idx < matches.length - 1) {
       [matches[idx], matches[idx + 1]] = [matches[idx + 1], matches[idx]];
+      // mark the match that moved (now at idx+1)
+      matches[idx + 1] = { ...matches[idx + 1], isManual: true };
     }
-    matches[idx] = { ...matches[idx], isManual: true };
     save({ poolMatches: matches });
   }
 
@@ -748,6 +791,33 @@ export function TournamentEngine({
     setDateInput("");
   }
 
+  function deleteMatch(matchId: string) {
+    if (!adminUnlocked) return;
+    const newMatches = data.poolMatches.filter((m) => m.id !== matchId);
+    save({ poolMatches: newMatches });
+  }
+
+  function addMatch() {
+    if (!addMatchHome || !addMatchAway || addMatchHome === addMatchAway) return;
+    const existingInPool = data.poolMatches.filter(
+      (m) => m.poolId === addMatchPoolId,
+    );
+    const newMatch: TPoolMatch = {
+      id: String(Date.now()),
+      poolId: addMatchPoolId,
+      homeTeamId: addMatchHome,
+      awayTeamId: addMatchAway,
+      totalOvers: 6,
+      status: "scheduled",
+      isManual: true,
+      matchNumber: existingInPool.length + 1,
+    };
+    save({ poolMatches: [...data.poolMatches, newMatch] });
+    setShowAddMatchDlg(false);
+    setAddMatchHome("");
+    setAddMatchAway("");
+  }
+
   function createTournament() {
     const totalAssigned = Object.values(poolAssignments).flat().length;
     if (totalAssigned < 4) {
@@ -768,12 +838,14 @@ export function TournamentEngine({
       .filter((p) => p.teamIds.length >= 2);
     const poolMatches = generateFixedSchedule(pools);
     save({
+      name: data.name,
+      selectedTeamIds: Object.values(poolAssignments).flat(),
       pools,
       poolMatches,
       knockoutMatches: [],
       stage: "pool",
       createdAt: new Date().toISOString(),
-      selectedTeamIds: Object.values(poolAssignments).flat(),
+      manualPoolRankings: {},
     });
     setTab("pools");
   }
@@ -789,13 +861,14 @@ export function TournamentEngine({
 
   // ── STANDINGS ────────────────────────────────────────────────
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: allTeams derived from teams+myTeams
   const allStandings = useMemo(() => {
     const m = new Map<string, Standing[]>();
     for (const pool of data.pools) {
-      m.set(pool.id, calcStandings(pool, data.poolMatches, teams));
+      m.set(pool.id, calcStandings(pool, data.poolMatches, allTeams));
     }
     return m;
-  }, [data.pools, data.poolMatches, teams]);
+  }, [data.pools, data.poolMatches, teams, myTeams]);
 
   // Display standings (with manual override applied)
   const displayStandings = useMemo(() => {
@@ -896,6 +969,16 @@ export function TournamentEngine({
       setPwdDialog(true);
       return;
     }
+    // Find existing balls data to pre-fill overs
+    const existingMatch = isKnockout
+      ? null
+      : data.poolMatches.find((m) => m.id === matchId);
+    const homeOversStr = existingMatch?.homeBalls
+      ? ballsToOversStr(existingMatch.homeBalls)
+      : "";
+    const awayOversStr = existingMatch?.awayBalls
+      ? ballsToOversStr(existingMatch.awayBalls)
+      : "";
     setScoreDialog({
       open: true,
       matchId,
@@ -903,6 +986,8 @@ export function TournamentEngine({
       awayRuns: currentAwayRuns?.toString() ?? "",
       homeBalls: "",
       awayBalls: "",
+      homeOvers: homeOversStr,
+      awayOvers: awayOversStr,
       totalOvers: currentTotalOvers?.toString() ?? "6",
       isKnockout,
       winnerId: currentWinnerId ?? "",
@@ -915,8 +1000,8 @@ export function TournamentEngine({
       matchId,
       homeRuns,
       awayRuns,
-      homeBalls,
-      awayBalls,
+      homeOvers,
+      awayOvers,
       totalOvers,
       isKnockout,
       winnerId,
@@ -924,8 +1009,8 @@ export function TournamentEngine({
     const hr = Number.parseInt(homeRuns) || 0;
     const ar = Number.parseInt(awayRuns) || 0;
     const ov = Number.parseInt(totalOvers) || 6;
-    const hb = Number.parseInt(homeBalls) || ov * 6;
-    const ab = Number.parseInt(awayBalls) || ov * 6;
+    const hb = homeOvers.trim() ? parseOvers(homeOvers) : ov * 6;
+    const ab = awayOvers.trim() ? parseOvers(awayOvers) : ov * 6;
     const status: TPoolMatch["status"] = hr === ar ? "tied" : "completed";
 
     if (isKnockout) {
@@ -1017,7 +1102,7 @@ export function TournamentEngine({
   }
 
   const getTeamName = (id: string | null) =>
-    id ? (teams.find((t) => t.id === id)?.name ?? id) : "TBD";
+    id ? (allTeams.find((t) => t.id === id)?.name ?? id) : "TBD";
 
   // ── TOURNAMENT STAGE / STATUS BAR ───────────────────────────
   const stageLabel =
@@ -1232,11 +1317,46 @@ export function TournamentEngine({
                             }}
                           >
                             <option value="">+ Add Team</option>
-                            {available.map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.name}
-                              </option>
-                            ))}
+                            <optgroup
+                              label="Default Teams"
+                              style={{ background: "#111", color: "#00e676" }}
+                            >
+                              {available
+                                .filter(
+                                  (t) => !myTeams?.find((mt) => mt.id === t.id),
+                                )
+                                .map((t) => (
+                                  <option
+                                    key={t.id}
+                                    value={t.id}
+                                    style={{ background: "#111" }}
+                                  >
+                                    {t.name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                            {(myTeams ?? []).filter((mt) =>
+                              available.find((t) => t.id === mt.id),
+                            ).length > 0 && (
+                              <optgroup
+                                label="My Teams"
+                                style={{ background: "#111", color: "#ffd600" }}
+                              >
+                                {(myTeams ?? [])
+                                  .filter((mt) =>
+                                    available.find((t) => t.id === mt.id),
+                                  )
+                                  .map((t) => (
+                                    <option
+                                      key={t.id}
+                                      value={t.id}
+                                      style={{ background: "#111" }}
+                                    >
+                                      {t.name}
+                                    </option>
+                                  ))}
+                              </optgroup>
+                            )}
                           </select>
                         )}
                       </div>
@@ -1397,7 +1517,7 @@ export function TournamentEngine({
                         </p>
                         <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
                           {pool.poolTeamOrder.map((tid, pos) => {
-                            const teamObj = teams.find((t) => t.id === tid);
+                            const teamObj = allTeams.find((t) => t.id === tid);
                             return (
                               <div
                                 key={tid}
@@ -1417,10 +1537,10 @@ export function TournamentEngine({
                     </div>
                     <div className="space-y-2">
                       {poolMatches.map((m, idx) => {
-                        const homeTeam = teams.find(
+                        const homeTeam = allTeams.find(
                           (t) => t.id === m.homeTeamId,
                         );
-                        const awayTeam = teams.find(
+                        const awayTeam = allTeams.find(
                           (t) => t.id === m.awayTeamId,
                         );
                         const isCompleted = m.status !== "scheduled";
@@ -1550,6 +1670,18 @@ export function TournamentEngine({
                                 >
                                   🕐 Time
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm("Delete this match?"))
+                                      deleteMatch(m.id);
+                                  }}
+                                  className="h-7 px-2 rounded-lg border border-red-500/30 text-red-400 text-[10px] font-semibold cursor-pointer hover:bg-red-500/10"
+                                  title="Delete match"
+                                  data-ocid={`pool.match.delete_button.${matchNum}`}
+                                >
+                                  🗑 Delete
+                                </button>
                               </div>
                             )}
 
@@ -1666,6 +1798,23 @@ export function TournamentEngine({
                         );
                       })}
                     </div>
+                    {editScheduleMode && adminUnlocked && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddMatchPoolId(pool.id);
+                          setShowAddMatchDlg(true);
+                        }}
+                        className="w-full h-10 mt-2 rounded-xl border border-dashed text-sm font-semibold cursor-pointer transition-colors bg-transparent"
+                        style={{
+                          borderColor: "rgba(0,230,118,0.4)",
+                          color: "rgba(0,230,118,0.7)",
+                        }}
+                        data-ocid="tournament.add_match.button"
+                      >
+                        + Add Match
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -1943,7 +2092,7 @@ export function TournamentEngine({
                             <KnockoutMatchCard
                               key={m.id}
                               match={m}
-                              teams={teams}
+                              teams={allTeams}
                               adminUnlocked={adminUnlocked}
                               onEnterScore={() =>
                                 openScoreDialog(
@@ -1990,7 +2139,7 @@ export function TournamentEngine({
                             <KnockoutMatchCard
                               key={m.id}
                               match={m}
-                              teams={teams}
+                              teams={allTeams}
                               adminUnlocked={adminUnlocked}
                               onEnterScore={() =>
                                 openScoreDialog(
@@ -2036,7 +2185,7 @@ export function TournamentEngine({
                             <KnockoutMatchCard
                               key={m.id}
                               match={m}
-                              teams={teams}
+                              teams={allTeams}
                               adminUnlocked={adminUnlocked}
                               isFinal
                               onEnterScore={() =>
@@ -2093,6 +2242,192 @@ export function TournamentEngine({
         </AnimatePresence>
       </div>
 
+      {/* ── ADD MATCH DIALOG ── */}
+      {showAddMatchDlg && adminUnlocked && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: "rgba(0,0,0,0.85)" }}
+        >
+          <div className="w-full max-w-md bg-zinc-900 border border-primary/30 rounded-t-2xl p-6 space-y-4">
+            <h3 className="text-primary font-bold text-lg">+ Add Match</h3>
+
+            {/* Pool selector */}
+            <div>
+              <label
+                htmlFor="add-match-pool"
+                className="text-white/60 text-xs mb-1 block"
+              >
+                Pool
+              </label>
+              <select
+                id="add-match-pool"
+                value={addMatchPoolId}
+                onChange={(e) => setAddMatchPoolId(e.target.value)}
+                className="w-full border text-white text-sm rounded-xl px-3 py-2.5 outline-none"
+                style={{
+                  background: "#111",
+                  borderColor: "rgba(255,255,255,0.2)",
+                }}
+              >
+                {data.pools.map((p) => (
+                  <option
+                    key={p.id}
+                    value={p.id}
+                    style={{ background: "#111" }}
+                  >
+                    Pool {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Home Team */}
+            <div>
+              <label
+                htmlFor="add-match-home"
+                className="text-white/60 text-xs mb-1 block"
+              >
+                Home Team
+              </label>
+              <select
+                id="add-match-home"
+                value={addMatchHome}
+                onChange={(e) => setAddMatchHome(e.target.value)}
+                className="w-full border text-white text-sm rounded-xl px-3 py-2.5 outline-none"
+                style={{
+                  background: "#111",
+                  borderColor: "rgba(255,255,255,0.2)",
+                }}
+                data-ocid="tournament.add_match.home.select"
+              >
+                <option value="" disabled style={{ background: "#111" }}>
+                  Select team...
+                </option>
+                <optgroup
+                  label="─── Default Teams ───"
+                  style={{ background: "#111", color: "#00e676" }}
+                >
+                  {teams.map((t) => (
+                    <option
+                      key={t.id}
+                      value={t.id}
+                      style={{ background: "#111" }}
+                    >
+                      {t.name}
+                    </option>
+                  ))}
+                </optgroup>
+                {(myTeams ?? []).length > 0 && (
+                  <optgroup
+                    label="─── My Teams ───"
+                    style={{ background: "#111", color: "#ffd600" }}
+                  >
+                    {(myTeams ?? []).map((t) => (
+                      <option
+                        key={t.id}
+                        value={t.id}
+                        style={{ background: "#111" }}
+                      >
+                        {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+
+            {/* Away Team */}
+            <div>
+              <label
+                htmlFor="add-match-away"
+                className="text-white/60 text-xs mb-1 block"
+              >
+                Away Team
+              </label>
+              <select
+                id="add-match-away"
+                value={addMatchAway}
+                onChange={(e) => setAddMatchAway(e.target.value)}
+                className="w-full border text-white text-sm rounded-xl px-3 py-2.5 outline-none"
+                style={{
+                  background: "#111",
+                  borderColor: "rgba(255,255,255,0.2)",
+                }}
+                data-ocid="tournament.add_match.away.select"
+              >
+                <option value="" disabled style={{ background: "#111" }}>
+                  Select team...
+                </option>
+                <optgroup
+                  label="─── Default Teams ───"
+                  style={{ background: "#111", color: "#00e676" }}
+                >
+                  {teams
+                    .filter((t) => t.id !== addMatchHome)
+                    .map((t) => (
+                      <option
+                        key={t.id}
+                        value={t.id}
+                        style={{ background: "#111" }}
+                      >
+                        {t.name}
+                      </option>
+                    ))}
+                </optgroup>
+                {(myTeams ?? []).length > 0 && (
+                  <optgroup
+                    label="─── My Teams ───"
+                    style={{ background: "#111", color: "#ffd600" }}
+                  >
+                    {(myTeams ?? [])
+                      .filter((t) => t.id !== addMatchHome)
+                      .map((t) => (
+                        <option
+                          key={t.id}
+                          value={t.id}
+                          style={{ background: "#111" }}
+                        >
+                          {t.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddMatchDlg(false);
+                  setAddMatchHome("");
+                  setAddMatchAway("");
+                }}
+                className="flex-1 h-11 rounded-xl border text-white/60 text-sm font-semibold cursor-pointer bg-transparent"
+                style={{ borderColor: "rgba(255,255,255,0.2)" }}
+                data-ocid="tournament.add_match.cancel_button"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={addMatch}
+                disabled={
+                  !addMatchHome ||
+                  !addMatchAway ||
+                  addMatchHome === addMatchAway
+                }
+                className="flex-1 h-11 rounded-xl text-black text-sm font-bold cursor-pointer disabled:opacity-40 border-0"
+                style={{ background: "#00e676" }}
+                data-ocid="tournament.add_match.confirm_button"
+              >
+                Add Match
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── ADMIN PASSWORD DIALOG ── */}
       {pwdDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-4">
@@ -2145,7 +2480,7 @@ export function TournamentEngine({
       {scoreDialog?.open && (
         <ScoreEntryDialog
           dialog={scoreDialog}
-          teams={teams}
+          teams={allTeams}
           poolMatches={data.poolMatches}
           knockoutMatches={data.knockoutMatches}
           onChange={(patch) =>
@@ -2346,6 +2681,8 @@ function ScoreEntryDialog({
     awayRuns: string;
     homeBalls: string;
     awayBalls: string;
+    homeOvers?: string;
+    awayOvers?: string;
     totalOvers: string;
     isKnockout: boolean;
     winnerId: string;
@@ -2438,6 +2775,47 @@ function ScoreEntryDialog({
         {hr === ar && hr > 0 && (
           <p className="text-yellow-400 text-xs text-center">Tied match</p>
         )}
+
+        {/* Overs Played (optional, for NRR) */}
+        <div className="space-y-1">
+          <p className="text-white/40 text-[10px] uppercase tracking-wider text-center">
+            Overs Faced (for NRR — optional, e.g. 4.3 = 4 overs 3 balls)
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="home-overs"
+                className="text-white/50 text-[10px] uppercase tracking-wider mb-1 block"
+              >
+                {homeName} Overs
+              </label>
+              <input
+                id="home-overs"
+                type="text"
+                value={dialog.homeOvers ?? ""}
+                onChange={(e) => onChange({ homeOvers: e.target.value })}
+                className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-primary"
+                placeholder="e.g. 6.0"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="away-overs"
+                className="text-white/50 text-[10px] uppercase tracking-wider mb-1 block"
+              >
+                {awayName} Overs
+              </label>
+              <input
+                id="away-overs"
+                type="text"
+                value={dialog.awayOvers ?? ""}
+                onChange={(e) => onChange({ awayOvers: e.target.value })}
+                className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-primary"
+                placeholder="e.g. 5.4"
+              />
+            </div>
+          </div>
+        </div>
 
         <div className="flex gap-3">
           <button
