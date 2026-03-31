@@ -5,35 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-// html-to-image loaded dynamically (CDN fallback)
-async function loadToPng(): Promise<
-  (node: HTMLElement, opts?: Record<string, unknown>) => Promise<string>
-> {
-  // Use window.html2canvas loaded via CDN script tag (see loadHtml2Canvas)
-  return async (node: HTMLElement, opts?: Record<string, unknown>) => {
-    if (!(window as any).html2canvas) {
-      await new Promise<void>((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src =
-          "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error("html2canvas load failed"));
-        document.head.appendChild(s);
-      });
-    }
-    const h2c = (window as any).html2canvas as (
-      el: HTMLElement,
-      o?: Record<string, unknown>,
-    ) => Promise<HTMLCanvasElement>;
-    const canvas = await h2c(node, {
-      scale: 2,
-      backgroundColor: "#000000",
-      ...(opts ?? {}),
-    });
-    return canvas.toDataURL("image/png");
-  };
-}
-// html2canvas loaded dynamically from CDN (for PDF)
+import { toPng as h2iToPng } from "html-to-image";
 // jsPDF loaded dynamically from CDN
 import {
   ArrowLeft,
@@ -4145,7 +4117,7 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
 
     const timer = setTimeout(async () => {
       setAutoSaveGenerating(true);
-      const dataUrl = await generateScorecardImage("scorecard-capture");
+      const dataUrl = await generateScorecardImage("scorecard-print");
       setAutoSaveGenerating(false);
       if (dataUrl) {
         setAutoSaveImageUrl(dataUrl);
@@ -4235,15 +4207,14 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
 
     // Try to generate image first for Web Share API
     setSavingPng(true);
-    const dataUrl = await generateScorecardImage("scorecard-capture");
+    const dataUrl = await generateScorecardImage("scorecard-print");
     setSavingPng(false);
 
-    if (dataUrl && navigator.canShare) {
+    if (dataUrl) {
       try {
-        const res = await fetch(dataUrl);
-        const blob = await res.blob();
+        const blob = dataUrlToBlob(dataUrl);
         const file = new File([blob], "scorecard.png", { type: "image/png" });
-        if (navigator.canShare({ files: [file] })) {
+        if (navigator.canShare?.({ files: [file] })) {
           await navigator.share({
             files: [file],
             title: "CCB Match Report",
@@ -4251,16 +4222,21 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
           });
           return;
         }
+      } catch (e) {
+        console.warn("Image share failed, falling back:", e);
+      }
+    }
+
+    // Fallback 1: text share
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "CCB Match Report", text });
+        return;
       } catch {}
     }
 
-    if (navigator.share) {
-      navigator.share({ title: "CCB Match Report", text }).catch(() => {
-        window.open(waUrl, "_blank");
-      });
-    } else {
-      window.open(waUrl, "_blank");
-    }
+    // Fallback 2: WhatsApp
+    window.open(waUrl, "_blank");
   }
 
   if (showMotmModal) {
@@ -4653,12 +4629,20 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
                 data-ocid="result.autosave.save_button"
                 onClick={() => {
                   if (!autoSaveImageUrl) return;
-                  const link = document.createElement("a");
-                  link.download = `scorecard-${match.teamA.name}-vs-${match.teamB.name}.png`;
-                  link.href = autoSaveImageUrl;
-                  document.body.appendChild(link);
-                  link.click();
-                  document.body.removeChild(link);
+                  try {
+                    const blob = dataUrlToBlob(autoSaveImageUrl);
+                    const blobUrl = URL.createObjectURL(blob);
+                    const link = document.createElement("a");
+                    link.download = `scorecard-${match.teamA.name}-vs-${match.teamB.name}.png`;
+                    link.href = blobUrl;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+                  } catch (e) {
+                    console.error("Auto-save download failed:", e);
+                    window.print();
+                  }
                 }}
                 style={{
                   background: "linear-gradient(135deg, #22c55e, #16a34a)",
@@ -4684,14 +4668,14 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
                 onClick={async () => {
                   setAutoSaveModal(false);
                   const text = `🏏 ${match.teamA.name} vs ${match.teamB.name}\nResult: ${resultText}\n\nScored with CCB Scoring Pro`;
-                  if (autoSaveImageUrl && navigator.canShare) {
+                  const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                  if (autoSaveImageUrl) {
                     try {
-                      const res = await fetch(autoSaveImageUrl);
-                      const blob = await res.blob();
+                      const blob = dataUrlToBlob(autoSaveImageUrl);
                       const file = new File([blob], "scorecard.png", {
                         type: "image/png",
                       });
-                      if (navigator.canShare({ files: [file] })) {
+                      if (navigator.canShare?.({ files: [file] })) {
                         await navigator.share({
                           files: [file],
                           title: "CCB Match Report",
@@ -4699,18 +4683,20 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
                         });
                         return;
                       }
-                    } catch {}
+                    } catch (e) {
+                      console.warn("Modal image share failed:", e);
+                    }
                   }
                   if (navigator.share) {
-                    navigator
-                      .share({ title: "CCB Match Report", text })
-                      .catch(() => {});
-                  } else {
-                    window.open(
-                      `https://wa.me/?text=${encodeURIComponent(text)}`,
-                      "_blank",
-                    );
+                    try {
+                      await navigator.share({
+                        title: "CCB Match Report",
+                        text,
+                      });
+                      return;
+                    } catch {}
                   }
+                  window.open(waUrl, "_blank");
                 }}
                 style={{
                   background: "linear-gradient(135deg, #1a73e8, #0d47a1)",
@@ -6792,21 +6778,64 @@ function MatchInfoView({
   );
 }
 
-async function getHtml2Canvas() {
-  if (!(window as any).html2canvas) {
-    await new Promise<void>((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src =
-        "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("html2canvas load failed"));
-      document.head.appendChild(s);
-    });
+// ─── IMAGE EXPORT UTILITIES ──────────────────────────────────
+// Uses html-to-image (npm) with dom-to-image-more CDN fallback
+
+const CAPTURE_OPTIONS = {
+  cacheBust: true,
+  backgroundColor: "#ffffff",
+  pixelRatio: 2,
+  filter: (node: Node) => (node as HTMLElement).tagName !== "IFRAME",
+} as const;
+
+// Convert dataURL to Blob reliably
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(",");
+  const mimeMatch = header.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : "image/png";
+  const binary = atob(base64);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+// Primary: html-to-image (npm), Fallback: dom-to-image-more (CDN)
+async function captureElementToPng(el: HTMLElement): Promise<string | null> {
+  // Wait for full render
+  await new Promise((r) => setTimeout(r, 400));
+
+  // Attempt 1: html-to-image npm package
+  try {
+    const dataUrl = await h2iToPng(el, CAPTURE_OPTIONS);
+    if (dataUrl && dataUrl.length > 1000) return dataUrl;
+  } catch (e1) {
+    console.warn("html-to-image failed, trying fallback:", e1);
   }
-  return (window as any).html2canvas as (
-    el: HTMLElement,
-    opts?: any,
-  ) => Promise<HTMLCanvasElement>;
+
+  // Attempt 2: dom-to-image-more via CDN
+  try {
+    if (!(window as any).domtoimage) {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src =
+          "https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.1.6/dom-to-image-more.min.js";
+        s.onload = () => resolve();
+        s.onerror = () =>
+          reject(new Error("dom-to-image-more CDN load failed"));
+        document.head.appendChild(s);
+      });
+    }
+    const dti = (window as any).domtoimage;
+    const dataUrl = await dti.toPng(el, {
+      bgcolor: "#ffffff",
+      scale: 2,
+    });
+    if (dataUrl && dataUrl.length > 1000) return dataUrl;
+  } catch (e2) {
+    console.warn("dom-to-image-more failed:", e2);
+  }
+
+  return null;
 }
 
 // Generate PNG dataUrl without downloading (for share/modal)
@@ -6814,28 +6843,16 @@ async function generateScorecardImage(
   elementId: string,
 ): Promise<string | null> {
   const el = document.getElementById(elementId);
-  if (!el) return null;
-  // Retry up to 3 times for reliability on Android Chrome
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
-      const toPng = await loadToPng();
-      const dataUrl = await toPng(el, {
-        quality: 1,
-        pixelRatio:
-          window.devicePixelRatio > 2 ? 2 : window.devicePixelRatio || 2,
-        backgroundColor: "#000000",
-        cacheBust: true,
-        skipAutoScale: false,
-        style: { transform: "none" },
-        filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
-      } as Record<string, unknown>);
-      if (dataUrl && dataUrl.length > 1000) return dataUrl;
-    } catch {
-      // retry
-    }
+  if (!el) {
+    console.error("generateScorecardImage: element not found:", elementId);
+    return null;
   }
-  return null;
+  try {
+    return await captureElementToPng(el);
+  } catch (e) {
+    console.error("generateScorecardImage failed:", e);
+    return null;
+  }
 }
 
 async function saveAsPng(
@@ -6848,48 +6865,56 @@ async function saveAsPng(
   try {
     const el = document.getElementById(elementId);
     if (!el) {
-      alert("Scorecard element not found. Please try again.");
+      alert(
+        "Scorecard not found. Please scroll to the scorecard and try again.",
+      );
       onEnd?.();
       return null;
     }
 
-    // Try html-to-image with retry (most reliable on Android Chrome)
     let dataUrl: string | null = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
+
+    // First attempt
+    try {
+      dataUrl = await captureElementToPng(el);
+    } catch (e) {
+      console.warn("PNG capture attempt 1 failed:", e);
+    }
+
+    // Retry once after 500ms if first failed
+    if (!dataUrl) {
+      await new Promise((r) => setTimeout(r, 500));
       try {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, 500));
-        const toPng = await loadToPng();
-        const result = await toPng(el, {
-          quality: 1,
-          pixelRatio:
-            window.devicePixelRatio > 2 ? 2 : window.devicePixelRatio || 2,
-          backgroundColor: "#000000",
-          cacheBust: true,
-          style: { transform: "none" },
-          filter: (node: unknown) => (node as HTMLElement).tagName !== "IFRAME",
-        } as Record<string, unknown>);
-        if (result && result.length > 1000) {
-          dataUrl = result;
-          break;
-        }
-      } catch {
-        /* retry */
+        dataUrl = await captureElementToPng(el);
+      } catch (e) {
+        console.warn("PNG capture attempt 2 failed:", e);
       }
     }
 
-    if (!dataUrl) throw new Error("No image data generated");
+    if (!dataUrl) {
+      // Final fallback: window.print()
+      console.error("PNG generation failed, triggering print fallback");
+      window.print();
+      onEnd?.();
+      return null;
+    }
 
+    // Use Blob + createObjectURL for reliable mobile download
+    const blob = dataUrlToBlob(dataUrl);
+    const blobUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.download = `${filename}.png`;
-    link.href = dataUrl;
+    link.href = blobUrl;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+
     onEnd?.();
     return dataUrl;
   } catch (e) {
     console.error("PNG save failed:", e);
-    alert("Could not save image. Try again or use screenshot.");
+    window.print();
     onEnd?.();
     return null;
   }
@@ -6905,18 +6930,39 @@ async function saveAsPdf(
   try {
     const el = document.getElementById(elementId);
     if (!el) {
-      alert("Element not found. Please scroll to the scorecard and try again.");
+      alert(
+        "Scorecard not found. Please scroll to the scorecard and try again.",
+      );
       onEnd?.();
       return;
     }
-    const h2c = await getHtml2Canvas();
-    const canvas = await h2c(el, {
-      scale: 2,
-      backgroundColor: "#0a0e21",
-      useCORS: true,
-    });
-    const imgData = canvas.toDataURL("image/png");
-    // Load jsPDF from CDN dynamically
+
+    // Step 1: Generate PNG first
+    let dataUrl: string | null = null;
+    try {
+      dataUrl = await captureElementToPng(el);
+    } catch (e) {
+      console.warn("PDF PNG capture attempt 1 failed:", e);
+    }
+
+    // Retry once
+    if (!dataUrl) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        dataUrl = await captureElementToPng(el);
+      } catch (e) {
+        console.warn("PDF PNG capture attempt 2 failed:", e);
+      }
+    }
+
+    if (!dataUrl) {
+      console.error("PDF: PNG generation failed, triggering print fallback");
+      window.print();
+      onEnd?.();
+      return;
+    }
+
+    // Step 2: Convert PNG to PDF using jsPDF
     if (!(window as any).jspdf) {
       await new Promise<void>((resolve, reject) => {
         const s = document.createElement("script");
@@ -6933,17 +6979,41 @@ async function saveAsPdf(
       unit: "mm",
       format: "a4",
     });
+
+    // Calculate image dimensions to fit A4 without cropping
+    const img = new Image();
+    await new Promise<void>((resolve) => {
+      img.onload = () => resolve();
+      img.src = dataUrl as string;
+    });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
-    const imgW = pageW - 20;
-    const imgH = (canvas.height * imgW) / canvas.width;
-    const yOffset = imgH < pageH - 20 ? (pageH - imgH) / 2 : 10;
-    pdf.addImage(imgData, "PNG", 10, yOffset, imgW, Math.min(imgH, pageH - 20));
-    pdf.save(`${filename}.pdf`);
+    const margin = 10;
+    const maxW = pageW - margin * 2;
+    const maxH = pageH - margin * 2;
+    const ratio = Math.min(maxW / img.width, maxH / img.height);
+    const imgW = img.width * ratio;
+    const imgH = img.height * ratio;
+    const xOffset = (pageW - imgW) / 2;
+    const yOffset = (pageH - imgH) / 2;
+
+    pdf.addImage(dataUrl, "PNG", xOffset, yOffset, imgW, imgH);
+
+    // Save using Blob for reliable mobile download
+    const pdfBlob = pdf.output("blob");
+    const blobUrl = URL.createObjectURL(pdfBlob);
+    const link = document.createElement("a");
+    link.download = `${filename}.pdf`;
+    link.href = blobUrl;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+
     onEnd?.();
   } catch (e) {
     console.error("PDF save failed:", e);
-    alert("❌ Could not generate PDF.");
+    window.print();
     onEnd?.();
   }
 }
