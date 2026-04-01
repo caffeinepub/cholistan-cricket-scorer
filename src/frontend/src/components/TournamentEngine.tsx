@@ -4,7 +4,8 @@
  * Pools → Points Table → Qualification → Knockout → Final
  */
 import { AnimatePresence, motion } from "motion/react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -66,6 +67,8 @@ type TournamentStage = "setup" | "pool" | "knockout" | "complete";
 
 interface EngineData {
   name: string;
+  tournamentId?: string;
+  tournamentName?: string;
   selectedTeamIds: string[];
   pools: Pool[];
   poolMatches: TPoolMatch[];
@@ -77,6 +80,8 @@ interface EngineData {
 
 const EMPTY_ENGINE: EngineData = {
   name: "CCB Tournament 2025",
+  tournamentId: "main_event",
+  tournamentName: "Main Tournament",
   selectedTeamIds: [],
   pools: [],
   poolMatches: [],
@@ -559,6 +564,8 @@ export function TournamentEngine({
           }));
         }
         if (!parsed.manualPoolRankings) parsed.manualPoolRankings = {};
+        if (!parsed.tournamentId) parsed.tournamentId = "main_event";
+        if (!parsed.tournamentName) parsed.tournamentName = "Main Tournament";
         return parsed;
       }
     } catch {
@@ -616,6 +623,20 @@ export function TournamentEngine({
 
   const [resetConfirm, setResetConfirm] = useState(false);
   const [editScheduleMode, setEditScheduleMode] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [allTournaments, setAllTournaments] = useState<
+    { id: string; name: string }[]
+  >(() => {
+    try {
+      const saved = localStorage.getItem("ccb_all_tournaments");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    const hasMain =
+      !!localStorage.getItem("ccb_tournament_main_event") ||
+      !!localStorage.getItem(STORAGE_KEY);
+    return hasMain ? [{ id: "main_event", name: "Main Tournament" }] : [];
+  });
+  const [showTournamentSelect, setShowTournamentSelect] = useState(false);
   const [showAddMatchDlg, setShowAddMatchDlg] = useState(false);
   const [addMatchPoolId, setAddMatchPoolId] = useState("pool_A");
   const [addMatchHome, setAddMatchHome] = useState("");
@@ -645,7 +666,10 @@ export function TournamentEngine({
           "ccb_matches",
           JSON.stringify(data.knockoutMatches),
         );
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        const dynamicKey = `ccb_tournament_${data.tournamentId || "main_event"}`;
+        localStorage.setItem(dynamicKey, JSON.stringify(data));
+        if (dynamicKey !== STORAGE_KEY)
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         localStorage.setItem("ccb_tournament", JSON.stringify(data));
         prevDataRef.current = data;
       } catch (e) {
@@ -682,6 +706,16 @@ export function TournamentEngine({
     }
     if (changed) setData(current);
   }, [completedMatches]); // eslint-disable-line
+
+  // Save tournament list
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "ccb_all_tournaments",
+        JSON.stringify(allTournaments),
+      );
+    } catch {}
+  }, [allTournaments]);
 
   // Keep admin in sync with external
   useEffect(() => {
@@ -758,6 +792,40 @@ export function TournamentEngine({
       matches[idx + 1] = { ...matches[idx + 1], isManual: true };
     }
     save({ poolMatches: matches });
+  }
+
+  function handleDragStart(e: React.DragEvent, idx: number) {
+    setDragIndex(idx);
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleDragOver(e: React.DragEvent, _idx: number) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }
+
+  function handleDrop(
+    e: React.DragEvent,
+    poolId: string,
+    targetIdx: number,
+    poolMatches: TPoolMatch[],
+  ) {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === targetIdx) {
+      setDragIndex(null);
+      return;
+    }
+    const reordered = [...poolMatches];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(targetIdx, 0, { ...moved, isManual: true });
+    setData((prev) => ({
+      ...prev,
+      poolMatches: [
+        ...prev.poolMatches.filter((m) => m.poolId !== poolId),
+        ...reordered,
+      ],
+    }));
+    setDragIndex(null);
   }
 
   function swapMatchTeams(matchId: string) {
@@ -1215,7 +1283,7 @@ export function TournamentEngine({
       </header>
 
       {/* ── CONTENT ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 pb-32 space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-52 space-y-4">
         <AnimatePresence mode="wait">
           {tab === "setup" && (
             <motion.div
@@ -1241,6 +1309,100 @@ export function TournamentEngine({
                   className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white font-semibold text-sm focus:outline-none focus:border-primary"
                   placeholder="CCB Tournament 2025"
                 />
+              </div>
+
+              {/* Tournament Selector */}
+              <div className="p-3 rounded-xl border border-white/10 bg-white/3">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-white/40 text-[10px] uppercase tracking-wider">
+                      Active Tournament
+                    </p>
+                    <p className="text-white font-bold text-sm">
+                      {data.tournamentName || data.name}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowTournamentSelect((v) => !v)}
+                      className="h-7 px-2.5 rounded-lg border border-white/20 text-white/70 text-[10px] font-semibold cursor-pointer hover:bg-white/10"
+                    >
+                      ⚡ Switch
+                    </button>
+                    {adminUnlocked && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const name = prompt("New tournament name:");
+                          if (!name?.trim()) return;
+                          const newId = `tournament_${Date.now()}`;
+                          const newT = {
+                            ...EMPTY_ENGINE,
+                            tournamentId: newId,
+                            tournamentName: name.trim(),
+                            name: name.trim(),
+                          };
+                          setAllTournaments((prev) => [
+                            ...prev,
+                            { id: newId, name: name.trim() },
+                          ]);
+                          setData(newT);
+                          setShowTournamentSelect(false);
+                        }}
+                        className="h-7 px-2.5 rounded-lg border border-primary/40 text-primary text-[10px] font-semibold cursor-pointer hover:bg-primary/10"
+                      >
+                        + New
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {showTournamentSelect && allTournaments.length > 0 && (
+                  <div className="space-y-1 mt-2">
+                    {allTournaments.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          const key = `ccb_tournament_${t.id}`;
+                          const raw =
+                            localStorage.getItem(key) ||
+                            (t.id === "main_event"
+                              ? localStorage.getItem(STORAGE_KEY)
+                              : null);
+                          if (raw) {
+                            try {
+                              const parsed = JSON.parse(raw) as EngineData;
+                              if (!parsed.tournamentId)
+                                parsed.tournamentId = t.id;
+                              if (!parsed.tournamentName)
+                                parsed.tournamentName = t.name;
+                              if (!parsed.manualPoolRankings)
+                                parsed.manualPoolRankings = {};
+                              setData(parsed);
+                            } catch {}
+                          } else {
+                            setData({
+                              ...EMPTY_ENGINE,
+                              tournamentId: t.id,
+                              tournamentName: t.name,
+                              name: t.name,
+                            });
+                          }
+                          setShowTournamentSelect(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-xs font-semibold border cursor-pointer ${
+                          data.tournamentId === t.id
+                            ? "border-primary/50 bg-primary/10 text-primary"
+                            : "border-white/10 bg-white/3 text-white/70 hover:bg-white/8"
+                        }`}
+                      >
+                        {t.name}
+                        {data.tournamentId === t.id && " ✓"}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Manual Pool Assignment */}
@@ -1557,6 +1719,27 @@ export function TournamentEngine({
                                   : "border-white/10 bg-white/3"
                             }`}
                             data-ocid={`pool.match.item.${matchNum}`}
+                            draggable={adminUnlocked}
+                            onDragStart={
+                              adminUnlocked
+                                ? (e) => handleDragStart(e, idx)
+                                : undefined
+                            }
+                            onDragOver={
+                              adminUnlocked
+                                ? (e) => handleDragOver(e, idx)
+                                : undefined
+                            }
+                            onDrop={
+                              adminUnlocked
+                                ? (e) =>
+                                    handleDrop(e, pool.id, idx, poolMatches)
+                                : undefined
+                            }
+                            style={{
+                              cursor: editScheduleMode ? "grab" : "default",
+                              opacity: dragIndex === idx ? 0.5 : 1,
+                            }}
                           >
                             {/* Tags */}
                             <div className="flex flex-wrap items-center gap-1.5 mb-2">
@@ -1632,7 +1815,7 @@ export function TournamentEngine({
                             )}
 
                             {/* Edit Schedule controls */}
-                            {editScheduleMode && adminUnlocked && (
+                            {adminUnlocked && (
                               <div className="flex flex-wrap gap-1.5 mb-2 pt-1 border-t border-white/10">
                                 <button
                                   type="button"
@@ -1798,7 +1981,7 @@ export function TournamentEngine({
                         );
                       })}
                     </div>
-                    {editScheduleMode && adminUnlocked && (
+                    {adminUnlocked && (
                       <button
                         type="button"
                         onClick={() => {

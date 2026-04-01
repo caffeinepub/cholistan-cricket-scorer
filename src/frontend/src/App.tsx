@@ -5,7 +5,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { toPng as h2iToPng } from "html-to-image";
+// html-to-image loaded dynamically
 // jsPDF loaded dynamically from CDN
 import {
   ArrowLeft,
@@ -3134,6 +3134,7 @@ function ScoringView({
       onUpdate(next);
       // End of over — ask for next bowler
       if (next.balls % 6 === 0 && next.balls > 0) {
+        smartBackup();
         setBowlerInput("");
         setBowlerDlg(true);
       }
@@ -3158,6 +3159,7 @@ function ScoringView({
       pushUndo(innings);
       const next = applyWicket(innings, wt, null, totalOvers, bowlerName);
       setWicketDlg({ open: false, step: "type" });
+      smartBackup();
       onInningsEnd(next);
     } else {
       setWicketDlg({ open: true, step: "batsman", wicketType: wt });
@@ -3234,6 +3236,26 @@ function ScoringView({
             title="Share Score"
           >
             <Share2 size={16} />
+          </button>
+          <button
+            data-ocid="scoring.live_link.button"
+            type="button"
+            onClick={() => {
+              const url = `${window.location.origin}${window.location.pathname}#live`;
+              navigator.clipboard.writeText(url).catch(() => {});
+              alert("Live link copied!");
+            }}
+            style={{
+              fontSize: "10px",
+              padding: "3px 7px",
+              background: "#1a3a2a",
+              border: "1px solid #22c55e",
+              borderRadius: "6px",
+              color: "#22c55e",
+              cursor: "pointer",
+            }}
+          >
+            📡 Live
           </button>
         </div>
       </header>
@@ -6781,7 +6803,7 @@ function MatchInfoView({
 // ─── IMAGE EXPORT UTILITIES ──────────────────────────────────
 // Uses html-to-image (npm) with dom-to-image-more CDN fallback
 
-const CAPTURE_OPTIONS = {
+const _CAPTURE_OPTIONS = {
   cacheBust: true,
   backgroundColor: "#ffffff",
   pixelRatio: 2,
@@ -6804,13 +6826,7 @@ async function captureElementToPng(el: HTMLElement): Promise<string | null> {
   // Wait for full render
   await new Promise((r) => setTimeout(r, 400));
 
-  // Attempt 1: html-to-image npm package
-  try {
-    const dataUrl = await h2iToPng(el, CAPTURE_OPTIONS);
-    if (dataUrl && dataUrl.length > 1000) return dataUrl;
-  } catch (e1) {
-    console.warn("html-to-image failed, trying fallback:", e1);
-  }
+  // Attempt 1: html-to-image (not bundled, skip to CDN fallback)
 
   // Attempt 2: dom-to-image-more via CDN
   try {
@@ -10607,6 +10623,20 @@ function PlayerLeaderboardView({ onBack }: { onBack: () => void }) {
   );
 }
 
+function smartBackup() {
+  try {
+    const backupObj: Record<string, string> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith("ccb_") && !k.startsWith("ccb_backup_")) {
+        const val = localStorage.getItem(k);
+        if (val !== null) backupObj[k] = val;
+      }
+    }
+    localStorage.setItem("ccb_backup", JSON.stringify(backupObj));
+  } catch {}
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [currentUser, setCurrentUser] = useState<CcbUser | null>(() => {
@@ -10631,7 +10661,11 @@ export default function App() {
   const [showCreateTeam, setShowCreateTeam] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamLogo, setNewTeamLogo] = useState<string | undefined>(undefined);
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#live")
+      return "live-match";
+    return "home";
+  });
   const [teams, setTeams] = useState<Team[]>(() => {
     try {
       const saved = localStorage.getItem("ccb_teams");
@@ -10765,6 +10799,7 @@ export default function App() {
     try {
       const backup = localStorage.getItem("ccb_teams");
       if (backup) localStorage.setItem("ccb_backup_teams", backup);
+      smartBackup();
       localStorage.setItem("ccb_teams", JSON.stringify(updated));
     } catch {}
   }
@@ -10812,6 +10847,7 @@ export default function App() {
     const updated = pastMatches.filter((m) => m.id !== matchId);
     setPastMatches(updated);
     try {
+      smartBackup();
       localStorage.setItem("ccb_past_matches", JSON.stringify(updated));
     } catch {}
   }
@@ -11027,6 +11063,7 @@ export default function App() {
 
     setPendingInitialBowler(bowlerName);
     setPendingMatchSetup(null);
+    smartBackup();
     setView("scoring");
   }
 
@@ -11051,6 +11088,7 @@ export default function App() {
     const updated = [record, ...pastMatches].slice(0, 10);
     setPastMatches(updated);
     try {
+      smartBackup();
       localStorage.setItem("ccb_past_matches", JSON.stringify(updated));
     } catch {}
     // Backend sync match (fire and forget)
