@@ -638,6 +638,15 @@ export function TournamentEngine({
   });
   const [showTournamentSelect, setShowTournamentSelect] = useState(false);
   const [showAddMatchDlg, setShowAddMatchDlg] = useState(false);
+  const [editMatchDialog, setEditMatchDialog] = useState<{
+    open: boolean;
+    matchId: string;
+    poolId: string;
+    homeTeamId: string;
+    awayTeamId: string;
+    matchTime: string;
+    matchDate: string;
+  } | null>(null);
   const [addMatchPoolId, setAddMatchPoolId] = useState("pool_A");
   const [addMatchHome, setAddMatchHome] = useState("");
   const [addMatchAway, setAddMatchAway] = useState("");
@@ -884,6 +893,46 @@ export function TournamentEngine({
     setShowAddMatchDlg(false);
     setAddMatchHome("");
     setAddMatchAway("");
+  }
+
+  function openEditMatchDialog(
+    matchId: string,
+    homeTeamId: string,
+    awayTeamId: string,
+    matchTime?: string,
+    matchDate?: string,
+    poolId?: string,
+  ) {
+    setEditMatchDialog({
+      open: true,
+      matchId,
+      poolId: poolId ?? "",
+      homeTeamId,
+      awayTeamId,
+      matchTime: matchTime ?? "",
+      matchDate: matchDate ?? "",
+    });
+  }
+
+  function saveEditedMatch() {
+    if (!editMatchDialog) return;
+    const { matchId, homeTeamId, awayTeamId, matchTime, matchDate } =
+      editMatchDialog;
+    if (!homeTeamId || !awayTeamId || homeTeamId === awayTeamId) return;
+    const newMatches = data.poolMatches.map((m) =>
+      m.id === matchId
+        ? {
+            ...m,
+            homeTeamId,
+            awayTeamId,
+            matchTime: matchTime || m.matchTime,
+            matchDate: matchDate || m.matchDate,
+            isManual: true,
+          }
+        : m,
+    );
+    save({ poolMatches: newMatches });
+    setEditMatchDialog(null);
   }
 
   function createTournament() {
@@ -1807,15 +1856,19 @@ export function TournamentEngine({
                                     <span className="text-primary font-semibold">
                                       {" ·"} Winner:{" "}
                                       {m.homeRuns > m.awayRuns
-                                        ? homeTeam?.name
-                                        : awayTeam?.name}
+                                        ? (homeTeam?.name ??
+                                          m.homeTeamId ??
+                                          "Team A")
+                                        : (awayTeam?.name ??
+                                          m.awayTeamId ??
+                                          "Team B")}
                                     </span>
                                   )}
                               </div>
                             )}
 
-                            {/* Edit Schedule controls */}
-                            {adminUnlocked && (
+                            {/* Edit Schedule controls - only show in edit mode */}
+                            {adminUnlocked && editScheduleMode && (
                               <div className="flex flex-wrap gap-1.5 mb-2 pt-1 border-t border-white/10">
                                 <button
                                   type="button"
@@ -1852,6 +1905,23 @@ export function TournamentEngine({
                                   title="Set time"
                                 >
                                   🕐 Time
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openEditMatchDialog(
+                                      m.id,
+                                      m.homeTeamId,
+                                      m.awayTeamId,
+                                      m.matchTime,
+                                      m.matchDate,
+                                      m.poolId,
+                                    )
+                                  }
+                                  className="h-7 px-2 rounded-lg border border-amber-500/30 text-amber-400 text-[10px] font-semibold cursor-pointer hover:bg-amber-500/10"
+                                  title="Edit match teams"
+                                >
+                                  ✏️ Edit
                                 </button>
                                 <button
                                   type="button"
@@ -2424,6 +2494,190 @@ export function TournamentEngine({
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── EDIT MATCH DIALOG ── */}
+      {editMatchDialog?.open && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 px-4 pb-6">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-[#0d0d0d] p-5 space-y-4">
+            <h3 className="text-white font-bold text-base">✏️ Edit Match</h3>
+            <div className="space-y-2">
+              <label
+                htmlFor="edit-match-home"
+                className="text-white/60 text-xs font-semibold uppercase tracking-wider"
+              >
+                Home Team
+              </label>
+              <select
+                id="edit-match-home"
+                value={editMatchDialog.homeTeamId}
+                onChange={(e) =>
+                  setEditMatchDialog({
+                    ...editMatchDialog,
+                    homeTeamId: e.target.value,
+                  })
+                }
+                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400"
+                style={{ background: "#111" }}
+              >
+                <option value="">Select team...</option>
+                <optgroup
+                  label="─── Default Teams ───"
+                  style={{ background: "#111", color: "#00e676" }}
+                >
+                  {teams.map((t) => (
+                    <option
+                      key={t.id}
+                      value={t.id}
+                      style={{ background: "#111" }}
+                    >
+                      {t.name}
+                    </option>
+                  ))}
+                </optgroup>
+                {(myTeams ?? []).length > 0 && (
+                  <optgroup
+                    label="─── My Teams ───"
+                    style={{ background: "#111", color: "#ffd600" }}
+                  >
+                    {(myTeams ?? []).map((t) => (
+                      <option
+                        key={t.id}
+                        value={t.id}
+                        style={{ background: "#111" }}
+                      >
+                        {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label
+                htmlFor="edit-match-away"
+                className="text-white/60 text-xs font-semibold uppercase tracking-wider"
+              >
+                Away Team
+              </label>
+              <select
+                id="edit-match-away"
+                value={editMatchDialog.awayTeamId}
+                onChange={(e) =>
+                  setEditMatchDialog({
+                    ...editMatchDialog,
+                    awayTeamId: e.target.value,
+                  })
+                }
+                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-400"
+                style={{ background: "#111" }}
+              >
+                <option value="">Select team...</option>
+                <optgroup
+                  label="─── Default Teams ───"
+                  style={{ background: "#111", color: "#00e676" }}
+                >
+                  {teams
+                    .filter((t) => t.id !== editMatchDialog.homeTeamId)
+                    .map((t) => (
+                      <option
+                        key={t.id}
+                        value={t.id}
+                        style={{ background: "#111" }}
+                      >
+                        {t.name}
+                      </option>
+                    ))}
+                </optgroup>
+                {(myTeams ?? []).length > 0 && (
+                  <optgroup
+                    label="─── My Teams ───"
+                    style={{ background: "#111", color: "#ffd600" }}
+                  >
+                    {(myTeams ?? [])
+                      .filter((t) => t.id !== editMatchDialog.homeTeamId)
+                      .map((t) => (
+                        <option
+                          key={t.id}
+                          value={t.id}
+                          style={{ background: "#111" }}
+                        >
+                          {t.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label
+                  htmlFor="edit-match-time"
+                  className="text-white/60 text-xs font-semibold uppercase tracking-wider"
+                >
+                  Time
+                </label>
+                <input
+                  id="edit-match-time"
+                  type="time"
+                  value={editMatchDialog.matchTime}
+                  onChange={(e) =>
+                    setEditMatchDialog({
+                      ...editMatchDialog,
+                      matchTime: e.target.value,
+                    })
+                  }
+                  className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-400"
+                  style={{ background: "#111" }}
+                />
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="edit-match-date"
+                  className="text-white/60 text-xs font-semibold uppercase tracking-wider"
+                >
+                  Date
+                </label>
+                <input
+                  id="edit-match-date"
+                  type="date"
+                  value={editMatchDialog.matchDate}
+                  onChange={(e) =>
+                    setEditMatchDialog({
+                      ...editMatchDialog,
+                      matchDate: e.target.value,
+                    })
+                  }
+                  className="w-full bg-white/5 border border-white/15 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-400"
+                  style={{ background: "#111" }}
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={saveEditedMatch}
+                disabled={
+                  !editMatchDialog.homeTeamId ||
+                  !editMatchDialog.awayTeamId ||
+                  editMatchDialog.homeTeamId === editMatchDialog.awayTeamId
+                }
+                className="flex-1 h-11 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-sm cursor-pointer hover:bg-amber-500/30 disabled:opacity-40"
+                data-ocid="tournament.edit_match.save_button"
+              >
+                Save Match
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditMatchDialog(null)}
+                className="flex-1 h-11 rounded-xl border border-white/20 text-white/50 font-semibold text-sm cursor-pointer hover:bg-white/5"
+                data-ocid="tournament.edit_match.cancel_button"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── ADD MATCH DIALOG ── */}
       {showAddMatchDlg && adminUnlocked && (
