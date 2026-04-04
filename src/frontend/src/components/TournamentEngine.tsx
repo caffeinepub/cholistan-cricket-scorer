@@ -622,7 +622,6 @@ export function TournamentEngine({
   } | null>(null);
 
   const [resetConfirm, setResetConfirm] = useState(false);
-  const [editScheduleMode, setEditScheduleMode] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [allTournaments, setAllTournaments] = useState<
     { id: string; name: string }[]
@@ -1686,30 +1685,7 @@ export function TournamentEngine({
                 </p>
               )}
 
-              {/* Edit Schedule toggle */}
-              {data.stage === "pool" &&
-                adminUnlocked &&
-                data.poolMatches.length > 0 && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-white/60 text-xs font-semibold uppercase tracking-wider">
-                      Schedule
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setEditScheduleMode((v) => !v)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                        editScheduleMode
-                          ? "bg-amber-500/30 border border-amber-500/60 text-amber-300"
-                          : "bg-white/10 border border-white/20 text-white/70 hover:bg-white/15"
-                      }`}
-                      data-ocid="tournament.edit_schedule.button"
-                    >
-                      {editScheduleMode
-                        ? "✓ Editing Schedule"
-                        : "✏️ Edit Schedule"}
-                    </button>
-                  </div>
-                )}
+              {/* Admin edit controls are always visible when admin is logged in */}
 
               {data.pools.map((pool) => {
                 const poolMatches = data.poolMatches.filter(
@@ -1786,7 +1762,7 @@ export function TournamentEngine({
                                 : undefined
                             }
                             style={{
-                              cursor: editScheduleMode ? "grab" : "default",
+                              cursor: adminUnlocked ? "grab" : "default",
                               opacity: dragIndex === idx ? 0.5 : 1,
                             }}
                           >
@@ -1868,7 +1844,7 @@ export function TournamentEngine({
                             )}
 
                             {/* Edit Schedule controls - only show in edit mode */}
-                            {adminUnlocked && editScheduleMode && (
+                            {adminUnlocked && (
                               <div className="flex flex-wrap gap-1.5 mb-2 pt-1 border-t border-white/10">
                                 <button
                                   type="button"
