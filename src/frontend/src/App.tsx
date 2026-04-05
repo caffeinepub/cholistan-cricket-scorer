@@ -7204,35 +7204,248 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
 
 interface FixedScheduleViewProps {
   teams: Team[];
+  myTeams?: MyTeam[];
+  isAdmin?: boolean;
   onHome: () => void;
 }
 
-function FixedScheduleView({ teams, onHome }: FixedScheduleViewProps) {
-  const times = [
-    "8:30 PM",
-    "9:15 PM",
-    "10:00 PM",
-    "10:45 PM",
-    "11:30 PM",
-    "12:10 AM",
-    "12:50 AM",
-    "1:30 AM",
-    "2:10 AM",
-    "2:50 AM",
-  ];
-  const matchPairs = [
-    [0, 1],
-    [2, 3],
-    [4, 0],
-    [1, 2],
-    [3, 4],
-    [0, 2],
-    [1, 4],
-    [3, 0],
-    [2, 4],
-    [1, 3],
-  ] as const;
-  const teamName = (i: number) => teams[i]?.name ?? `Team ${i + 1}`;
+// ─── FIXED SCHEDULE MATCH TYPE ───────────────────────────────
+interface FixedScheduleMatch {
+  id: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  time?: string;
+  date?: string;
+  isManual?: boolean;
+}
+
+const FIXED_5_PAIRS: [number, number][] = [
+  [0, 1],
+  [2, 3],
+  [4, 0],
+  [1, 2],
+  [3, 4],
+  [0, 2],
+  [1, 4],
+  [3, 0],
+  [2, 4],
+  [1, 3],
+];
+
+const DEFAULT_TIMES = [
+  "8:30 PM",
+  "9:15 PM",
+  "10:00 PM",
+  "10:45 PM",
+  "11:30 PM",
+  "12:10 AM",
+  "12:50 AM",
+  "1:30 AM",
+  "2:10 AM",
+  "2:50 AM",
+];
+
+const FS_STORAGE_KEY = "ccb_fixed_schedule_v2";
+const FS_TEAM_ORDER_KEY = "ccb_fixed_schedule_team_order";
+
+function loadFixedSchedule(defaultTeamIds: string[]): {
+  matches: FixedScheduleMatch[];
+  teamOrder: string[];
+} {
+  try {
+    const raw = localStorage.getItem(FS_STORAGE_KEY);
+    const orderRaw = localStorage.getItem(FS_TEAM_ORDER_KEY);
+    const teamOrder: string[] = orderRaw
+      ? JSON.parse(orderRaw)
+      : defaultTeamIds.slice(0, 5);
+    if (raw) {
+      const matches = JSON.parse(raw) as FixedScheduleMatch[];
+      if (Array.isArray(matches) && matches.length > 0) {
+        return { matches, teamOrder };
+      }
+    }
+    // Generate default from team order
+    const matches: FixedScheduleMatch[] = FIXED_5_PAIRS.map(([a, b], idx) => ({
+      id: `fs_${Date.now()}_${idx}`,
+      homeTeamId: teamOrder[a] ?? "",
+      awayTeamId: teamOrder[b] ?? "",
+      time: DEFAULT_TIMES[idx],
+      isManual: false,
+    }));
+    return { matches, teamOrder };
+  } catch {
+    return { matches: [], teamOrder: defaultTeamIds.slice(0, 5) };
+  }
+}
+
+function saveFixedSchedule(matches: FixedScheduleMatch[], teamOrder: string[]) {
+  try {
+    localStorage.setItem(FS_STORAGE_KEY, JSON.stringify(matches));
+    localStorage.setItem(FS_TEAM_ORDER_KEY, JSON.stringify(teamOrder));
+    // Backup
+    const backup = localStorage.getItem("ccb_backup");
+    let backupObj: Record<string, unknown> = {};
+    try {
+      backupObj = backup ? JSON.parse(backup) : {};
+    } catch {}
+    backupObj[FS_STORAGE_KEY] = matches;
+    localStorage.setItem("ccb_backup", JSON.stringify(backupObj));
+  } catch {}
+}
+
+function FixedScheduleView({
+  teams,
+  myTeams = [],
+  isAdmin = false,
+  onHome,
+}: FixedScheduleViewProps) {
+  const allTeams = React.useMemo(
+    () => [
+      ...teams,
+      ...myTeams.map((mt) => ({
+        id: mt.id,
+        name: mt.name,
+        players: mt.players,
+      })),
+    ],
+    [teams, myTeams],
+  );
+
+  const defaultTeamIds = React.useMemo(
+    () => teams.slice(0, 5).map((t) => t.id),
+    [teams],
+  );
+
+  const [{ matches, teamOrder }, setState] = useState(() =>
+    loadFixedSchedule(defaultTeamIds),
+  );
+  const [editMode, setEditMode] = useState(false);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addHome, setAddHome] = useState("");
+  const [addAway, setAddAway] = useState("");
+  const [addTime, setAddTime] = useState("");
+  const [addDate, setAddDate] = useState("");
+  const [editMatchId, setEditMatchId] = useState<string | null>(null);
+  const [editHome, setEditHome] = useState("");
+  const [editAway, setEditAway] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [editDate, setEditDate] = useState("");
+
+  function persist(newMatches: FixedScheduleMatch[], newOrder: string[]) {
+    setState({ matches: newMatches, teamOrder: newOrder });
+    saveFixedSchedule(newMatches, newOrder);
+  }
+
+  function teamName(id: string) {
+    return allTeams.find((t) => t.id === id)?.name ?? id ?? "TBD";
+  }
+
+  function moveMatch(idx: number, dir: "up" | "down") {
+    const m = [...matches];
+    if (dir === "up" && idx > 0) {
+      [m[idx - 1], m[idx]] = [
+        { ...m[idx], isManual: true },
+        { ...m[idx - 1], isManual: true },
+      ];
+    } else if (dir === "down" && idx < m.length - 1) {
+      [m[idx], m[idx + 1]] = [
+        { ...m[idx + 1], isManual: true },
+        { ...m[idx], isManual: true },
+      ];
+    }
+    persist(m, teamOrder);
+  }
+
+  function swapTeams(matchId: string) {
+    persist(
+      matches.map((m) =>
+        m.id === matchId
+          ? {
+              ...m,
+              homeTeamId: m.awayTeamId,
+              awayTeamId: m.homeTeamId,
+              isManual: true,
+            }
+          : m,
+      ),
+      teamOrder,
+    );
+  }
+
+  function deleteMatch(matchId: string) {
+    persist(
+      matches.filter((m) => m.id !== matchId),
+      teamOrder,
+    );
+  }
+
+  function openEdit(m: FixedScheduleMatch) {
+    setEditMatchId(m.id);
+    setEditHome(m.homeTeamId);
+    setEditAway(m.awayTeamId);
+    setEditTime(m.time ?? "");
+    setEditDate(m.date ?? "");
+  }
+
+  function saveEdit() {
+    if (!editMatchId) return;
+    persist(
+      matches.map((m) =>
+        m.id === editMatchId
+          ? {
+              ...m,
+              homeTeamId: editHome,
+              awayTeamId: editAway,
+              time: editTime,
+              date: editDate,
+              isManual: true,
+            }
+          : m,
+      ),
+      teamOrder,
+    );
+    setEditMatchId(null);
+  }
+
+  function addMatch() {
+    if (!addHome || !addAway || addHome === addAway) return;
+    const newMatch: FixedScheduleMatch = {
+      id: `fs_add_${Date.now()}`,
+      homeTeamId: addHome,
+      awayTeamId: addAway,
+      time: addTime || undefined,
+      date: addDate || undefined,
+      isManual: true,
+    };
+    persist([...matches, newMatch], teamOrder);
+    setAddHome("");
+    setAddAway("");
+    setAddTime("");
+    setAddDate("");
+    setShowAddDialog(false);
+  }
+
+  function regenerateSchedule() {
+    // Only regenerate non-manual matches; keep manual ones
+    const manualMatches = matches.filter((m) => m.isManual);
+    const newAuto: FixedScheduleMatch[] = FIXED_5_PAIRS.map(([a, b], idx) => ({
+      id: `fs_regen_${Date.now()}_${idx}`,
+      homeTeamId: teamOrder[a] ?? "",
+      awayTeamId: teamOrder[b] ?? "",
+      time: DEFAULT_TIMES[idx],
+      isManual: false,
+    }));
+    // Merge: keep manual, replace auto
+    const merged = newAuto.map((autoM) => {
+      const existing = manualMatches.find(
+        (mm) =>
+          mm.homeTeamId === autoM.homeTeamId &&
+          mm.awayTeamId === autoM.awayTeamId,
+      );
+      return existing ?? autoM;
+    });
+    persist(merged, teamOrder);
+  }
 
   return (
     <motion.div
@@ -7257,11 +7470,54 @@ function FixedScheduleView({ teams, onHome }: FixedScheduleViewProps) {
         <span className="text-white font-bold text-lg tracking-wide">
           FIXED SCHEDULE
         </span>
-        <div className="w-20" />
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setEditMode((v) => !v)}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg border cursor-pointer transition-all"
+              style={{
+                background: editMode ? "rgba(0,230,118,0.15)" : "transparent",
+                borderColor: editMode ? "#00e676" : "rgba(255,255,255,0.2)",
+                color: editMode ? "#00e676" : "rgba(255,255,255,0.6)",
+              }}
+            >
+              ⚙️ {editMode ? "Exit Edit" : "Edit Mode"}
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* Edit Mode Banner */}
+      {editMode && isAdmin && (
+        <div
+          className="mx-4 mt-3 rounded-xl px-4 py-2 flex items-center justify-between gap-2"
+          style={{
+            background: "rgba(0,230,118,0.08)",
+            border: "1px solid rgba(0,230,118,0.3)",
+          }}
+        >
+          <span className="text-xs font-semibold" style={{ color: "#00e676" }}>
+            ✏️ Edit Mode Active — tap controls on each match
+          </span>
+          <button
+            type="button"
+            onClick={regenerateSchedule}
+            className="text-xs px-2 py-1 rounded border cursor-pointer"
+            style={{
+              borderColor: "rgba(255,200,0,0.4)",
+              color: "#ffd700",
+              background: "rgba(255,200,0,0.08)",
+            }}
+            title="Regenerate auto matches (keeps manual)"
+          >
+            🔄 Regenerate
+          </button>
+        </div>
+      )}
+
       {/* Schedule List */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 pb-20">
         <div className="text-center mb-4">
           <p className="text-yellow-300 text-sm font-semibold">
             CCB Tournament · Night Matches
@@ -7270,42 +7526,471 @@ function FixedScheduleView({ teams, onHome }: FixedScheduleViewProps) {
             First 5 matches: 45 min gap · Last 5 matches: 40 min gap
           </p>
         </div>
-        {matchPairs.map(([a, b], idx) => (
+
+        {matches.length === 0 && (
+          <div className="text-center py-10">
+            <p className="text-white/40 text-sm">
+              No matches. {isAdmin ? "Add a match or regenerate." : ""}
+            </p>
+          </div>
+        )}
+
+        {matches.map((match, idx) => (
           <div
-            key={`${a}-${b}`}
+            key={match.id}
             data-ocid={`fixed_schedule.item.${idx + 1}`}
-            className="rounded-2xl border border-white/10 p-4 flex items-center gap-4"
+            className="rounded-2xl border p-4"
             style={{
               background:
                 idx < 5
                   ? "linear-gradient(135deg, rgba(250,255,0,0.06) 0%, rgba(0,0,0,0.3) 100%)"
                   : "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(0,0,0,0.3) 100%)",
+              borderColor: match.isManual
+                ? "rgba(255,165,0,0.4)"
+                : "rgba(255,255,255,0.1)",
               boxShadow: "0 2px 12px rgba(0,0,0,0.4)",
             }}
           >
-            <div className="flex flex-col items-center min-w-[40px]">
-              <span className="text-yellow-400 font-black text-lg leading-none">
-                #{idx + 1}
-              </span>
-            </div>
-            <div className="flex-1">
-              <div className="text-white font-bold text-sm">{teamName(a)}</div>
-              <div className="text-yellow-400 text-xs font-semibold my-0.5">
-                VS
+            <div className="flex items-center gap-4">
+              <div className="flex flex-col items-center min-w-[40px]">
+                <span className="text-yellow-400 font-black text-lg leading-none">
+                  #{idx + 1}
+                </span>
+                {match.isManual && (
+                  <span className="text-xs mt-0.5" style={{ color: "#ffa500" }}>
+                    Manual
+                  </span>
+                )}
               </div>
-              <div className="text-white font-bold text-sm">{teamName(b)}</div>
-            </div>
-            <div className="text-right">
-              <span className="text-yellow-300 font-bold text-sm">
-                {times[idx]}
-              </span>
-              <div className="text-white/40 text-xs mt-1">
-                {idx < 5 ? "+45 min" : "+40 min"}
+              <div className="flex-1 min-w-0">
+                <div className="text-white font-bold text-sm truncate">
+                  {teamName(match.homeTeamId)}
+                </div>
+                <div className="text-yellow-400 text-xs font-semibold my-0.5">
+                  VS
+                </div>
+                <div className="text-white font-bold text-sm truncate">
+                  {teamName(match.awayTeamId)}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {match.date && (
+                  <div className="text-white/50 text-xs">{match.date}</div>
+                )}
+                <span className="text-yellow-300 font-bold text-sm">
+                  {match.time || "TBD"}
+                </span>
+                <div className="text-white/40 text-xs mt-1">
+                  {idx < 5 ? "+45 min" : "+40 min"}
+                </div>
               </div>
             </div>
+
+            {/* Admin Edit Controls */}
+            {editMode && isAdmin && (
+              <div
+                className="flex flex-wrap gap-2 mt-3 pt-3"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => openEdit(match)}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border cursor-pointer"
+                  style={{
+                    borderColor: "rgba(0,200,255,0.4)",
+                    color: "#00cfff",
+                    background: "rgba(0,200,255,0.07)",
+                  }}
+                >
+                  ✏️ Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => swapTeams(match.id)}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border cursor-pointer"
+                  style={{
+                    borderColor: "rgba(100,100,255,0.4)",
+                    color: "#aaa8ff",
+                    background: "rgba(100,100,255,0.07)",
+                  }}
+                >
+                  ⇄ Swap
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveMatch(idx, "up")}
+                  disabled={idx === 0}
+                  className="text-xs px-2 py-1 rounded-lg border cursor-pointer disabled:opacity-30"
+                  style={{
+                    borderColor: "rgba(255,255,255,0.2)",
+                    color: "rgba(255,255,255,0.7)",
+                    background: "transparent",
+                  }}
+                >
+                  ⬆
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveMatch(idx, "down")}
+                  disabled={idx === matches.length - 1}
+                  className="text-xs px-2 py-1 rounded-lg border cursor-pointer disabled:opacity-30"
+                  style={{
+                    borderColor: "rgba(255,255,255,0.2)",
+                    color: "rgba(255,255,255,0.7)",
+                    background: "transparent",
+                  }}
+                >
+                  ⬇
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteMatch(match.id)}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border cursor-pointer"
+                  style={{
+                    borderColor: "rgba(239,68,68,0.4)",
+                    color: "#f87171",
+                    background: "rgba(239,68,68,0.07)",
+                  }}
+                >
+                  🗑 Delete
+                </button>
+              </div>
+            )}
           </div>
         ))}
+
+        {/* Add Match Button */}
+        {editMode && isAdmin && (
+          <button
+            type="button"
+            onClick={() => setShowAddDialog(true)}
+            className="w-full py-3 rounded-xl border font-bold text-sm cursor-pointer transition-all"
+            style={{
+              borderColor: "rgba(0,230,118,0.4)",
+              color: "#00e676",
+              background: "rgba(0,230,118,0.06)",
+              borderStyle: "dashed",
+            }}
+          >
+            + Add Match
+          </button>
+        )}
       </div>
+
+      {/* Edit Match Dialog */}
+      {editMatchId && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl p-6 space-y-4"
+            style={{
+              background: "#0d1a0e",
+              border: "1px solid rgba(0,230,118,0.2)",
+            }}
+          >
+            <h3 className="text-white font-bold text-lg">✏️ Edit Match</h3>
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="edit-home-team"
+                  className="text-xs text-white/60 block mb-1"
+                >
+                  Home Team
+                </label>
+                <select
+                  id="edit-home-team"
+                  value={editHome}
+                  onChange={(e) => setEditHome(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                  style={{
+                    background: "#0a1a0f",
+                    borderColor: "rgba(0,230,118,0.25)",
+                  }}
+                >
+                  <option value="">Select team...</option>
+                  <optgroup label="Default Teams">
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {myTeams.length > 0 && (
+                    <optgroup label="My Teams">
+                      {myTeams.map((mt) => (
+                        <option key={mt.id} value={mt.id}>
+                          {mt.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label
+                  htmlFor="edit-away-team"
+                  className="text-xs text-white/60 block mb-1"
+                >
+                  Away Team
+                </label>
+                <select
+                  id="edit-away-team"
+                  value={editAway}
+                  onChange={(e) => setEditAway(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                  style={{
+                    background: "#0a1a0f",
+                    borderColor: "rgba(0,230,118,0.25)",
+                  }}
+                >
+                  <option value="">Select team...</option>
+                  <optgroup label="Default Teams">
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {myTeams.length > 0 && (
+                    <optgroup label="My Teams">
+                      {myTeams.map((mt) => (
+                        <option key={mt.id} value={mt.id}>
+                          {mt.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="edit-date"
+                    className="text-xs text-white/60 block mb-1"
+                  >
+                    Date
+                  </label>
+                  <input
+                    id="edit-date"
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                    style={{
+                      background: "#0a1a0f",
+                      borderColor: "rgba(0,230,118,0.25)",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="edit-time"
+                    className="text-xs text-white/60 block mb-1"
+                  >
+                    Time
+                  </label>
+                  <input
+                    id="edit-time"
+                    type="text"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    placeholder="e.g. 8:30 PM"
+                    className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                    style={{
+                      background: "#0a1a0f",
+                      borderColor: "rgba(0,230,118,0.25)",
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditMatchId(null)}
+                className="flex-1 py-2.5 rounded-xl border font-semibold text-sm cursor-pointer"
+                style={{
+                  borderColor: "rgba(255,255,255,0.2)",
+                  color: "rgba(255,255,255,0.6)",
+                  background: "transparent",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveEdit}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer text-black"
+                style={{
+                  background: "linear-gradient(135deg, #00e676, #00b248)",
+                }}
+              >
+                Save Match
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Match Dialog */}
+      {showAddDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl p-6 space-y-4"
+            style={{
+              background: "#0d1a0e",
+              border: "1px solid rgba(0,230,118,0.2)",
+            }}
+          >
+            <h3 className="text-white font-bold text-lg">+ Add Match</h3>
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="add-home-team"
+                  className="text-xs text-white/60 block mb-1"
+                >
+                  Team A (Home)
+                </label>
+                <select
+                  id="add-home-team"
+                  value={addHome}
+                  onChange={(e) => setAddHome(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                  style={{
+                    background: "#0a1a0f",
+                    borderColor: "rgba(0,230,118,0.25)",
+                  }}
+                >
+                  <option value="">Select team...</option>
+                  <optgroup label="Default Teams">
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {myTeams.length > 0 && (
+                    <optgroup label="My Teams">
+                      {myTeams.map((mt) => (
+                        <option key={mt.id} value={mt.id}>
+                          {mt.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label
+                  htmlFor="add-away-team"
+                  className="text-xs text-white/60 block mb-1"
+                >
+                  Team B (Away)
+                </label>
+                <select
+                  id="add-away-team"
+                  value={addAway}
+                  onChange={(e) => setAddAway(e.target.value)}
+                  className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                  style={{
+                    background: "#0a1a0f",
+                    borderColor: "rgba(0,230,118,0.25)",
+                  }}
+                >
+                  <option value="">Select team...</option>
+                  <optgroup label="Default Teams">
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {myTeams.length > 0 && (
+                    <optgroup label="My Teams">
+                      {myTeams.map((mt) => (
+                        <option key={mt.id} value={mt.id}>
+                          {mt.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="add-date"
+                    className="text-xs text-white/60 block mb-1"
+                  >
+                    Date
+                  </label>
+                  <input
+                    id="add-date"
+                    type="date"
+                    value={addDate}
+                    onChange={(e) => setAddDate(e.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                    style={{
+                      background: "#0a1a0f",
+                      borderColor: "rgba(0,230,118,0.25)",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="add-time"
+                    className="text-xs text-white/60 block mb-1"
+                  >
+                    Time
+                  </label>
+                  <input
+                    id="add-time"
+                    type="text"
+                    value={addTime}
+                    onChange={(e) => setAddTime(e.target.value)}
+                    placeholder="e.g. 8:30 PM"
+                    className="w-full rounded-xl px-3 py-2.5 text-white text-sm border outline-none"
+                    style={{
+                      background: "#0a1a0f",
+                      borderColor: "rgba(0,230,118,0.25)",
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAddDialog(false)}
+                className="flex-1 py-2.5 rounded-xl border font-semibold text-sm cursor-pointer"
+                style={{
+                  borderColor: "rgba(255,255,255,0.2)",
+                  color: "rgba(255,255,255,0.6)",
+                  background: "transparent",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={addMatch}
+                disabled={!addHome || !addAway || addHome === addAway}
+                className="flex-1 py-2.5 rounded-xl font-bold text-sm cursor-pointer text-black disabled:opacity-50"
+                style={{
+                  background: "linear-gradient(135deg, #00e676, #00b248)",
+                }}
+              >
+                Add Match
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -10667,12 +11352,45 @@ export default function App() {
     return "home";
   });
   const [teams, setTeams] = useState<Team[]>(() => {
+    // Safety: initialise ccb_players if missing (NEVER overwrite existing)
+    if (!localStorage.getItem("ccb_players")) {
+      localStorage.setItem("ccb_players", JSON.stringify({}));
+    }
     try {
       const saved = localStorage.getItem("ccb_teams");
+      let base: Team[] = TEAMS;
       if (saved) {
         const parsed = JSON.parse(saved) as Team[];
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) base = parsed;
       }
+      // Also merge from ccb_players {teamId: [name1, name2, ...]} format
+      try {
+        const playersRaw = localStorage.getItem("ccb_players");
+        if (playersRaw) {
+          const playersData = JSON.parse(playersRaw) as Record<
+            string,
+            string[]
+          >;
+          base = base.map((team) => {
+            const names: string[] = Array.isArray(playersData[team.id])
+              ? playersData[team.id]
+              : [];
+            if (names.length === 0) return team;
+            // Merge: keep existing Player objects, add new names from ccb_players
+            const existingNames = new Set(team.players.map((p) => p.name));
+            const newPlayers = names
+              .filter((n) => n && !existingNames.has(n))
+              .map((name, idx) => ({
+                id: `ccbp_${team.id}_${idx}_${Date.now()}`,
+                name,
+              }));
+            return newPlayers.length > 0
+              ? { ...team, players: [...team.players, ...newPlayers] }
+              : team;
+          });
+        }
+      } catch {}
+      return base;
     } catch {}
     return TEAMS;
   });
@@ -10801,6 +11519,14 @@ export default function App() {
       if (backup) localStorage.setItem("ccb_backup_teams", backup);
       smartBackup();
       localStorage.setItem("ccb_teams", JSON.stringify(updated));
+      // Also persist to ccb_players {teamId: [name1, name2]} for compatibility
+      try {
+        const playersData: Record<string, string[]> = {};
+        for (const team of updated) {
+          playersData[team.id] = team.players.map((p) => p.name);
+        }
+        localStorage.setItem("ccb_players", JSON.stringify(playersData));
+      } catch {}
     } catch {}
   }
 
@@ -10862,6 +11588,17 @@ export default function App() {
         );
       } catch {}
     }
+    // Also sync to ccb_players for compatibility (merge with default teams)
+    try {
+      const existingRaw = localStorage.getItem("ccb_players");
+      const existing: Record<string, string[]> = existingRaw
+        ? JSON.parse(existingRaw)
+        : {};
+      for (const mt of teams) {
+        existing[mt.id] = mt.players.map((p) => p.name);
+      }
+      localStorage.setItem("ccb_players", JSON.stringify(existing));
+    } catch {}
   }
 
   function handleCreateTeam() {
@@ -11358,6 +12095,8 @@ export default function App() {
           <FixedScheduleView
             key="fixed-schedule"
             teams={teams}
+            myTeams={myTeams}
+            isAdmin={isAdminUnlocked}
             onHome={() => setView("home")}
           />
         )}
