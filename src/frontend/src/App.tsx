@@ -182,6 +182,7 @@ interface MatchRecord {
   innings1: InningsState;
   innings2?: InningsState;
   resultText?: string;
+  tournamentId?: string;
   manOfTheMatch?: {
     name: string;
     teamName: string;
@@ -3177,6 +3178,7 @@ function ScoringView({
       bowlerName,
     );
     setWicketDlg({ open: false, step: "type" });
+    smartBackup();
     if (inningsNum === 2 && target !== undefined && next.totalRuns >= target) {
       onInningsEnd(next);
       return;
@@ -7282,6 +7284,7 @@ function saveFixedSchedule(matches: FixedScheduleMatch[], teamOrder: string[]) {
   try {
     localStorage.setItem(FS_STORAGE_KEY, JSON.stringify(matches));
     localStorage.setItem(FS_TEAM_ORDER_KEY, JSON.stringify(teamOrder));
+    localStorage.setItem("ccb_schedule", JSON.stringify(matches));
     // Backup
     const backup = localStorage.getItem("ccb_backup");
     let backupObj: Record<string, unknown> = {};
@@ -11415,6 +11418,16 @@ export default function App() {
 
   const [matchInfoCards, setMatchInfoCards] = useState<MatchInfoCard[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>("home");
+  const [currentTournamentId, _setCurrentTournamentId] = useState<string>(
+    () => {
+      try {
+        const saved = localStorage.getItem("ccb_current_tournament_id");
+        return saved || "main_event";
+      } catch {
+        return "main_event";
+      }
+    },
+  );
 
   const {
     isAdmin: isAdminUnlocked,
@@ -11821,6 +11834,7 @@ export default function App() {
       innings1: i1,
       innings2: finalInnings,
       resultText: result,
+      tournamentId: currentTournamentId,
     };
     const updated = [record, ...pastMatches].slice(0, 10);
     setPastMatches(updated);
