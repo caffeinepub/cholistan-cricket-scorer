@@ -36,6 +36,8 @@ import { AnimatePresence, motion } from "motion/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { AdminLoginModal } from "./components/AdminLoginModal";
 import AnnouncementSection from "./components/AnnouncementSection";
+import PremiumTournament from "./components/PremiumTournament";
+import PublicLiveMatchPage from "./components/PublicLiveMatchPage";
 import { RulesPage } from "./components/RulesPage";
 import ScoreBoardTemplate from "./components/ScoreBoardTemplate";
 import {
@@ -84,7 +86,8 @@ type View =
   | "scoreboard"
   | "rules"
   | "analytics"
-  | "player-leaderboard";
+  | "player-leaderboard"
+  | "premium-tournament";
 
 interface BatsmanState {
   player: Player;
@@ -854,6 +857,7 @@ interface HomeViewProps {
   onRules?: () => void;
   onAnalytics?: () => void;
   onPlayerLeaderboard?: () => void;
+  onPremiumTournament?: () => void;
 }
 
 function HomeView({
@@ -877,6 +881,7 @@ function HomeView({
   onRules,
   onAnalytics,
   onPlayerLeaderboard,
+  onPremiumTournament,
 }: HomeViewProps) {
   const [pwaInstallPrompt, setPwaInstallPrompt] = useState<any>(
     () => (window as any).__deferredInstallPrompt || null,
@@ -1944,6 +1949,44 @@ function HomeView({
               style={{ color: "#ffd700" }}
             >
               LEADERBOARD
+            </span>
+          </motion.button>
+
+          {/* Premium Tournament Card */}
+          <motion.button
+            type="button"
+            data-ocid="home.premium_tournament.primary_button"
+            whileTap={{ scale: 0.94 }}
+            onClick={() => onPremiumTournament?.()}
+            className="aspect-square w-full flex flex-col items-center justify-center gap-3 rounded-2xl cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,215,0,0.15) 0%, rgba(255,165,0,0.08) 100%)",
+              border: "1.5px solid rgba(255,215,0,0.5)",
+              boxShadow:
+                "0 0 20px rgba(255,215,0,0.2), 0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            <motion.span
+              animate={{ scale: [1, 1.08, 1] }}
+              transition={{ duration: 2.5, repeat: Number.POSITIVE_INFINITY }}
+              style={{
+                fontSize: "40px",
+                filter: "drop-shadow(0 0 12px #ffd700)",
+              }}
+            >
+              💎
+            </motion.span>
+            <span
+              className="text-xs font-bold tracking-wide text-center leading-tight"
+              style={{
+                color: "#ffd700",
+                textShadow: "0 0 10px rgba(255,215,0,0.5)",
+              }}
+            >
+              PREMIUM
+              <br />
+              TOURNAMENT
             </span>
           </motion.button>
         </div>
@@ -3068,6 +3111,12 @@ function ScoringView({
     initialBowlerName || innings.bowlingTeam.name,
   );
 
+  // Generate a stable matchId for this scoring session
+  const [currentMatchId] = useState(
+    () => `match_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+  );
+  const [liveLinkCopied, setLiveLinkCopied] = useState(false);
+
   // Write live match data to localStorage for LiveMatchView
   useEffect(() => {
     const striker = innings.activeBatsmen.find((b) => b.isStriker);
@@ -3090,11 +3139,16 @@ function ScoringView({
       isComplete: innings.isComplete,
       inningsNum,
       timestamp: Date.now(),
+      matchId: currentMatchId,
     };
     try {
       localStorage.setItem("ccb_live_match", JSON.stringify(data));
+      localStorage.setItem(
+        `ccb_live_match_${currentMatchId}`,
+        JSON.stringify(data),
+      );
     } catch {}
-  }, [innings, bowlerName, target, inningsNum, totalOvers]);
+  }, [innings, bowlerName, target, inningsNum, totalOvers, currentMatchId]);
 
   const [bowlerDlg, setBowlerDlg] = useState(false);
   const [bowlerInput, setBowlerInput] = useState("");
@@ -3243,21 +3297,29 @@ function ScoringView({
             data-ocid="scoring.live_link.button"
             type="button"
             onClick={() => {
-              const url = `${window.location.origin}${window.location.pathname}#live`;
-              navigator.clipboard.writeText(url).catch(() => {});
-              alert("Live link copied!");
+              const url = `${window.location.origin}/match/${currentMatchId}`;
+              navigator.clipboard
+                .writeText(url)
+                .then(() => {
+                  setLiveLinkCopied(true);
+                  setTimeout(() => setLiveLinkCopied(false), 2000);
+                })
+                .catch(() => {});
             }}
             style={{
               fontSize: "10px",
               padding: "3px 7px",
-              background: "#1a3a2a",
-              border: "1px solid #22c55e",
+              background: liveLinkCopied ? "#0a3020" : "#1a3a2a",
+              border: liveLinkCopied
+                ? "1px solid #00ff88"
+                : "1px solid #22c55e",
               borderRadius: "6px",
-              color: "#22c55e",
+              color: liveLinkCopied ? "#00ff88" : "#22c55e",
               cursor: "pointer",
+              transition: "all 0.2s",
             }}
           >
-            📡 Live
+            {liveLinkCopied ? "✓ Copied" : "📡 Live"}
           </button>
         </div>
       </header>
@@ -4081,6 +4143,7 @@ interface ResultViewProps {
 function ResultView({ match, onNewMatch }: ResultViewProps) {
   const { innings1, innings2, resultText } = match;
   const [savingPng, setSavingPng] = useState(false);
+  const [resultLiveLinkCopied, setResultLiveLinkCopied] = useState(false);
   const [savingPdf, setSavingPdf] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [autoSaveModal, setAutoSaveModal] = useState(false);
@@ -4574,6 +4637,37 @@ function ResultView({ match, onNewMatch }: ResultViewProps) {
             </button>
           </div>
 
+          <button
+            type="button"
+            data-ocid="result.copy_live_link.button"
+            onClick={() => {
+              const liveRaw = localStorage.getItem("ccb_live_match");
+              const matchId = liveRaw ? JSON.parse(liveRaw)?.matchId : null;
+              const url = matchId
+                ? `${window.location.origin}/match/${matchId}`
+                : `${window.location.origin}/match/${match.id}`;
+              navigator.clipboard
+                .writeText(url)
+                .then(() => {
+                  setResultLiveLinkCopied(true);
+                  setTimeout(() => setResultLiveLinkCopied(false), 2000);
+                })
+                .catch(() => {});
+            }}
+            className="w-full h-12 rounded-xl border font-body font-semibold flex items-center justify-center gap-2 cursor-pointer bg-transparent"
+            style={{
+              borderColor: resultLiveLinkCopied
+                ? "rgba(0,229,255,0.5)"
+                : "rgba(0,229,255,0.3)",
+              color: "#00e5ff",
+              background: resultLiveLinkCopied
+                ? "rgba(0,229,255,0.1)"
+                : "transparent",
+              transition: "all 0.2s",
+            }}
+          >
+            📡 {resultLiveLinkCopied ? "Copied!" : "Copy Live Link"}
+          </button>
           <button
             type="button"
             data-ocid="result.new_match.primary_button"
@@ -8058,6 +8152,7 @@ interface LiveMatchData {
   isComplete: boolean;
   inningsNum: number;
   timestamp: number;
+  matchId?: string;
 }
 
 function LiveMatchView({ onBack }: { onBack: () => void }) {
@@ -11325,7 +11420,7 @@ function smartBackup() {
   } catch {}
 }
 
-export default function App() {
+function AppInner() {
   const [showSplash, setShowSplash] = useState(true);
   const [currentUser, setCurrentUser] = useState<CcbUser | null>(() => {
     try {
@@ -12014,6 +12109,7 @@ export default function App() {
             onRules={() => setView("rules")}
             onAnalytics={() => setView("analytics")}
             onPlayerLeaderboard={() => setView("player-leaderboard")}
+            onPremiumTournament={() => setView("premium-tournament")}
           />
         )}
 
@@ -12199,6 +12295,17 @@ export default function App() {
             pastMatchesCount={pastMatches.length}
           />
         )}
+
+        {view === "premium-tournament" && (
+          <PremiumTournament
+            key="premium-tournament"
+            onBack={() => setView("home")}
+            defaultTeams={teams}
+            myTeams={myTeams}
+            isAdmin={isAdminUnlocked}
+            onAdminLogin={handleUnlockAdmin}
+          />
+        )}
       </AnimatePresence>
 
       {/* Fixed Bottom Navigation — hidden during scoring */}
@@ -12240,4 +12347,14 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+export default function App() {
+  if (
+    typeof window !== "undefined" &&
+    window.location.pathname.startsWith("/match/")
+  ) {
+    return <PublicLiveMatchPage />;
+  }
+  return <AppInner />;
 }
