@@ -56,7 +56,7 @@ export default function PublicLiveMatchPage() {
       } catch {}
     }
     readData();
-    const interval = setInterval(readData, 2000);
+    const interval = setInterval(readData, 3000);
     return () => clearInterval(interval);
   }, [matchId]);
 
@@ -469,7 +469,7 @@ export default function PublicLiveMatchPage() {
       >
         <p style={{ margin: 0 }}>CCB Scoring Pro</p>
         <p style={{ margin: 0 }}>
-          Managed by Shahzad Sultan | Contact: 03418890677
+          Contact: 03418890677 | Managed by Shahzad Sultan
         </p>
       </div>
     </div>

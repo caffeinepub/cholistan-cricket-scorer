@@ -1,4 +1,9 @@
-import { Badge } from "@/components/ui/badge";
+declare global {
+  interface Window {
+    jspdf: any;
+  }
+}
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,14 +14,55 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  ArrowLeft,
-  CheckCircle,
-  Copy,
-  Plus,
-  Settings,
-  Trash2,
-} from "lucide-react";
+// CDN-based image capture (mirrors App.tsx pattern)
+async function captureElementToPng(el: HTMLElement): Promise<string | null> {
+  await new Promise((r) => setTimeout(r, 400));
+  try {
+    if (!(window as any).domtoimage) {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src =
+          "https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.1.6/dom-to-image-more.min.js";
+        s.onload = () => resolve();
+        s.onerror = () =>
+          reject(new Error("dom-to-image-more CDN load failed"));
+        document.head.appendChild(s);
+      });
+    }
+    const dti = (window as any).domtoimage;
+    const dataUrl = await dti.toPng(el, { bgcolor: "#0a0a0a", scale: 2 });
+    if (dataUrl && dataUrl.length > 1000) return dataUrl;
+  } catch (e) {
+    console.warn("captureElementToPng failed:", e);
+  }
+  return null;
+}
+
+async function captureElementToPngLight(
+  el: HTMLElement,
+): Promise<string | null> {
+  await new Promise((r) => setTimeout(r, 400));
+  try {
+    if (!(window as any).domtoimage) {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src =
+          "https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.1.6/dom-to-image-more.min.js";
+        s.onload = () => resolve();
+        s.onerror = () =>
+          reject(new Error("dom-to-image-more CDN load failed"));
+        document.head.appendChild(s);
+      });
+    }
+    const dti = (window as any).domtoimage;
+    const dataUrl = await dti.toPng(el, { bgcolor: "#ffffff", scale: 2 });
+    if (dataUrl && dataUrl.length > 1000) return dataUrl;
+  } catch (e) {
+    console.warn("captureElementToPngLight failed:", e);
+  }
+  return null;
+}
+import { ArrowLeft, Plus, Settings } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -91,7 +137,7 @@ const POOL_SCHEDULE = [
 // ─────────────────────────────────────────────────────────────
 
 function generateMatchId(): string {
-  return `match_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  return `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function savePremiumData(code: string, data: UserPremiumData): void {
@@ -99,54 +145,84 @@ function savePremiumData(code: string, data: UserPremiumData): void {
     const allData: Record<string, UserPremiumData> = JSON.parse(
       localStorage.getItem("ccb_premium_data") || "{}",
     );
-    // Backup first
-    localStorage.setItem(
-      "ccb_backup_premium",
-      localStorage.getItem("ccb_premium_data") || "{}",
-    );
     allData[code] = data;
-    localStorage.setItem("ccb_premium_data", JSON.stringify(allData));
+    const allDataStr = JSON.stringify(allData);
+    localStorage.setItem("ccb_premium_data", allDataStr);
+    // Full backup — all codes, not just current
+    localStorage.setItem("ccb_backup_premium", allDataStr);
   } catch {}
 }
 
 function loadPremiumData(code: string): UserPremiumData {
+  const empty: UserPremiumData = {
+    tournamentName: "",
+    teams: [],
+    matches: [],
+    schedule: [],
+    createdAt: "",
+  };
+  // Primary source
   try {
     const allData: Record<string, UserPremiumData> = JSON.parse(
       localStorage.getItem("ccb_premium_data") || "{}",
     );
-    return (
-      allData[code] || {
-        tournamentName: "",
-        teams: [],
-        matches: [],
-        schedule: [],
-        createdAt: "",
+    const data = allData[code];
+    if (data) {
+      // Fail-safe: ensure all matches have matchId
+      if (data.schedule) {
+        data.schedule = data.schedule.map((m) => ({
+          ...m,
+          matchId: m.matchId || generateMatchId(),
+        }));
       }
-    );
-  } catch {
-    try {
-      const backup: Record<string, UserPremiumData> = JSON.parse(
-        localStorage.getItem("ccb_backup_premium") || "{}",
-      );
-      return (
-        backup[code] || {
-          tournamentName: "",
-          teams: [],
-          matches: [],
-          schedule: [],
-          createdAt: "",
-        }
-      );
-    } catch {
-      return {
-        tournamentName: "",
-        teams: [],
-        matches: [],
-        schedule: [],
-        createdAt: "",
-      };
+      return data;
     }
-  }
+  } catch {}
+  // Fallback to backup
+  try {
+    const backup: Record<string, UserPremiumData> = JSON.parse(
+      localStorage.getItem("ccb_backup_premium") || "{}",
+    );
+    const data = backup[code];
+    if (data) {
+      if (data.schedule) {
+        data.schedule = data.schedule.map((m) => ({
+          ...m,
+          matchId: m.matchId || generateMatchId(),
+        }));
+      }
+      return data;
+    }
+  } catch {}
+  return empty;
+}
+
+// Write live match data to localStorage for the public live page
+function writeLiveMatchData(match: PremiumMatch): void {
+  if (!match.matchId) return;
+  try {
+    localStorage.setItem(
+      `ccb_live_match_${match.matchId}`,
+      JSON.stringify({
+        teamA: match.homeTeamName,
+        teamB: match.awayTeamName,
+        totalRuns: match.homeRuns ?? 0,
+        wickets: 0,
+        balls: 0,
+        totalOvers: 20,
+        strikerName: "",
+        strikerRuns: 0,
+        strikerBalls: 0,
+        nonStrikerName: "",
+        nonStrikerRuns: 0,
+        bowlerName: "",
+        isComplete: true,
+        inningsNum: 2,
+        timestamp: Date.now(),
+        matchId: match.matchId,
+      }),
+    );
+  } catch {}
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -160,14 +236,21 @@ export default function PremiumTournament({
   isAdmin,
   onAdminLogin,
 }: PremiumTournamentProps) {
-  // Auth state
+  // ─── Auth state ───
   const [premiumState, setPremiumState] = useState<PremiumState>(() => {
     try {
-      if (localStorage.getItem("ccb_premium_unlocked") === "true")
-        return "unlocked";
+      const unlocked = localStorage.getItem("ccb_premium_unlocked") === "true";
+      const code = localStorage.getItem("ccb_user_code") || "";
+      // Fail-safe: if unlocked flag set but code is missing, reset
+      if (unlocked && !code) {
+        localStorage.removeItem("ccb_premium_unlocked");
+        return "locked";
+      }
+      if (unlocked) return "unlocked";
     } catch {}
     return "locked";
   });
+
   const [userCode, setUserCode] = useState<string>(
     () => localStorage.getItem("ccb_user_code") || "",
   );
@@ -233,6 +316,18 @@ export default function PremiumTournament({
 
   // Live link copy
   const [copiedMatchId, setCopiedMatchId] = useState<string | null>(null);
+
+  // Add match dialog
+  const [showAddMatch, setShowAddMatch] = useState(false);
+  const [addMatchHomeId, setAddMatchHomeId] = useState("");
+  const [addMatchAwayId, setAddMatchAwayId] = useState("");
+  const [addMatchDate, setAddMatchDate] = useState("");
+  const [addMatchTime, setAddMatchTime] = useState("");
+
+  // Export loading states
+  const [exportingPngId, setExportingPngId] = useState<string | null>(null);
+  const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
 
   const allTeams = [...defaultTeams, ...myTeams];
 
@@ -361,6 +456,49 @@ export default function PremiumTournament({
     toast.success(`Tournament "${newTournamentName.trim()}" created! 🏏`);
   }
 
+  // ─── Add match ───
+  function handleAddMatch() {
+    if (!addMatchHomeId || !addMatchAwayId) {
+      toast.error("Please select both teams");
+      return;
+    }
+    if (addMatchHomeId === addMatchAwayId) {
+      toast.error("Teams must be different");
+      return;
+    }
+    const homeTeam = allTeams.find((t) => t.id === addMatchHomeId);
+    const awayTeam = allTeams.find((t) => t.id === addMatchAwayId);
+    if (!homeTeam || !awayTeam) return;
+
+    const newMatchNum = userData.schedule.length + 1;
+    const newMatch: PremiumMatch = {
+      id: `m_manual_${Date.now()}`,
+      matchId: generateMatchId(),
+      pool: "A",
+      matchNum: newMatchNum,
+      homeTeamId: homeTeam.id,
+      awayTeamId: awayTeam.id,
+      homeTeamName: homeTeam.name,
+      awayTeamName: awayTeam.name,
+      date: addMatchDate || undefined,
+      time: addMatchTime || undefined,
+      status: "scheduled",
+      isManual: true,
+    };
+
+    const updated = {
+      ...userData,
+      schedule: [...userData.schedule, newMatch],
+    };
+    saveData(updated);
+    setShowAddMatch(false);
+    setAddMatchHomeId("");
+    setAddMatchAwayId("");
+    setAddMatchDate("");
+    setAddMatchTime("");
+    toast.success("Match added! 🏏");
+  }
+
   // ─── Schedule edit ───
   function handleSaveMatchEdit() {
     const updated = {
@@ -413,20 +551,27 @@ export default function PremiumTournament({
       toast.error("Enter valid scores");
       return;
     }
+    const updatedMatch = userData.schedule.find((x) => x.id === scoreMatchId);
+    if (!updatedMatch) return;
+
+    const completedMatch: PremiumMatch = {
+      ...updatedMatch,
+      homeRuns: hRuns,
+      awayRuns: aRuns,
+      status: "completed",
+    };
+
     const updated = {
       ...userData,
       schedule: userData.schedule.map((m) =>
-        m.id === scoreMatchId
-          ? {
-              ...m,
-              homeRuns: hRuns,
-              awayRuns: aRuns,
-              status: "completed" as const,
-            }
-          : m,
+        m.id === scoreMatchId ? completedMatch : m,
       ),
     };
     saveData(updated);
+
+    // Write to live match key for public live page
+    writeLiveMatchData(completedMatch);
+
     setScoreMatchId(null);
     setHomeScore("");
     setAwayScore("");
@@ -441,6 +586,120 @@ export default function PremiumTournament({
       setTimeout(() => setCopiedMatchId(null), 2000);
       toast.success("Copied! 📡");
     });
+  }
+
+  // ─── PNG export ───
+  async function handleExportPng(match: PremiumMatch) {
+    setExportingPngId(match.id);
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      const node = document.getElementById(`premium-scorecard-${match.id}`);
+      if (!node) throw new Error("Element not found");
+      const dataUrl = await captureElementToPng(node);
+      if (!dataUrl) throw new Error("Capture failed");
+      const resp = await fetch(dataUrl);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `scorecard-match${match.matchNum}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("PNG saved! 📸");
+    } catch (err) {
+      console.error("PNG export error:", err);
+      toast.error("Could not export PNG");
+    } finally {
+      setExportingPngId(null);
+    }
+  }
+
+  // ─── PDF export ───
+  async function handleExportPdf(match: PremiumMatch) {
+    setExportingPdfId(match.id);
+    try {
+      await new Promise((r) => setTimeout(r, 400));
+      const node = document.getElementById(`premium-scorecard-${match.id}`);
+      if (!node) throw new Error("Element not found");
+      const dataUrl = await captureElementToPngLight(node);
+      if (!dataUrl) throw new Error("Capture failed");
+
+      // Load jsPDF from CDN dynamically
+      if (!window.jspdf) {
+        await new Promise<void>((resolve, reject) => {
+          const existing = document.getElementById("jspdf-script");
+          if (existing) {
+            resolve();
+            return;
+          }
+          const script = document.createElement("script");
+          script.id = "jspdf-script";
+          script.src =
+            "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Failed to load jsPDF"));
+          document.head.appendChild(script);
+        });
+      }
+
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+      });
+      const imgProps = pdf.getImageProperties(dataUrl);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+      pdf.addImage(dataUrl, "PNG", 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`scorecard-match${match.matchNum}.pdf`);
+      toast.success("PDF saved! 📄");
+    } catch (err) {
+      console.error("PDF export error:", err);
+      toast.error("Could not export PDF");
+    } finally {
+      setExportingPdfId(null);
+    }
+  }
+
+  // ─── Share ───
+  async function handleShare(match: PremiumMatch) {
+    setSharingId(match.id);
+    const liveUrl = `${window.location.origin}/match/${match.matchId}`;
+    const shareText = `Match ${match.matchNum}: ${match.homeTeamName} vs ${match.awayTeamName}\nScore: ${match.homeRuns ?? "?"} - ${match.awayRuns ?? "?"}\n\nWatch Live Match:\n${liveUrl}`;
+    try {
+      const node = document.getElementById(`premium-scorecard-${match.id}`);
+      if (navigator.share) {
+        if (node) {
+          try {
+            await new Promise((r) => setTimeout(r, 300));
+            const dataUrl = await captureElementToPng(node);
+            if (!dataUrl) throw new Error("Capture failed");
+            const resp = await fetch(dataUrl);
+            const blob = await resp.blob();
+            const file = new File([blob], "scorecard.png", {
+              type: "image/png",
+            });
+            await navigator.share({
+              title: "CCB Scorecard",
+              text: shareText,
+              files: [file],
+            });
+          } catch {
+            await navigator.share({ title: "CCB Scorecard", text: shareText });
+          }
+        } else {
+          await navigator.share({ title: "CCB Scorecard", text: shareText });
+        }
+      } else {
+        await navigator.clipboard.writeText(shareText);
+        toast.success("Copied to clipboard!");
+      }
+    } catch (err) {
+      console.error("Share error:", err);
+    } finally {
+      setSharingId(null);
+    }
   }
 
   // ─── Admin panel helpers ───
@@ -472,24 +731,209 @@ export default function PremiumTournament({
   const GoldBadge = ({ children }: { children: React.ReactNode }) => (
     <span
       style={{
-        background: "linear-gradient(135deg, #ffd700, #ffaa00)",
-        color: "#000",
-        borderRadius: "20px",
-        padding: "2px 10px",
-        fontSize: "0.7rem",
+        background:
+          "linear-gradient(135deg, rgba(255,215,0,0.3), rgba(255,165,0,0.2))",
+        border: "1px solid rgba(255,215,0,0.5)",
+        borderRadius: "6px",
+        padding: "3px 8px",
+        fontSize: "0.65rem",
         fontWeight: 800,
+        color: "#ffd700",
         letterSpacing: "0.06em",
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "4px",
+        boxShadow: "0 0 8px rgba(255,215,0,0.25)",
       }}
     >
       {children}
     </span>
   );
 
+  // Scorecard block for a completed match (used for export)
+  const ScorecardBlock = ({ match }: { match: PremiumMatch }) => (
+    <div
+      id={`premium-scorecard-${match.id}`}
+      style={{
+        background: "#0a0a0a",
+        border: "1px solid rgba(0,255,136,0.3)",
+        borderRadius: "14px",
+        padding: "16px",
+        marginBottom: "10px",
+      }}
+    >
+      {/* Match title */}
+      <div style={{ textAlign: "center", marginBottom: "12px" }}>
+        <span
+          style={{
+            fontSize: "0.68rem",
+            color: "#ffd700",
+            fontWeight: 700,
+            background: "rgba(255,215,0,0.12)",
+            borderRadius: "6px",
+            padding: "2px 10px",
+            letterSpacing: "0.06em",
+          }}
+        >
+          🏆 {userData.tournamentName} — Match {match.matchNum}
+        </span>
+      </div>
+      {/* Teams and score */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "12px",
+        }}
+      >
+        <div style={{ flex: 1, textAlign: "left" }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.95rem",
+              fontWeight: 800,
+              color: "#ffffff",
+              lineHeight: 1.2,
+            }}
+          >
+            {match.homeTeamName}
+          </p>
+          <p
+            style={{
+              margin: "4px 0 0",
+              fontSize: "1.4rem",
+              fontWeight: 900,
+              color: "#00ff88",
+            }}
+          >
+            {match.homeRuns ?? "—"}
+          </p>
+        </div>
+        <div
+          style={{
+            padding: "0 12px",
+            textAlign: "center",
+            fontSize: "0.85rem",
+            color: "rgba(255,215,0,0.7)",
+            fontWeight: 800,
+          }}
+        >
+          VS
+        </div>
+        <div style={{ flex: 1, textAlign: "right" }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.95rem",
+              fontWeight: 800,
+              color: "#ffffff",
+              lineHeight: 1.2,
+            }}
+          >
+            {match.awayTeamName}
+          </p>
+          <p
+            style={{
+              margin: "4px 0 0",
+              fontSize: "1.4rem",
+              fontWeight: 900,
+              color: "#00ff88",
+            }}
+          >
+            {match.awayRuns ?? "—"}
+          </p>
+        </div>
+      </div>
+      {/* Winner banner */}
+      {match.homeRuns !== undefined && match.awayRuns !== undefined && (
+        <div
+          style={{
+            background: "rgba(0,255,136,0.1)",
+            border: "1px solid rgba(0,255,136,0.2)",
+            borderRadius: "8px",
+            padding: "8px",
+            textAlign: "center",
+            marginBottom: "10px",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              color: "#00ff88",
+            }}
+          >
+            🏆{" "}
+            {match.homeRuns > match.awayRuns
+              ? match.homeTeamName
+              : match.homeRuns < match.awayRuns
+                ? match.awayTeamName
+                : "Match Tied"}{" "}
+            {match.homeRuns !== match.awayRuns ? "won" : ""}
+          </span>
+        </div>
+      )}
+      {/* Live link */}
+      <div
+        style={{
+          background: "rgba(0,229,255,0.06)",
+          borderRadius: "6px",
+          padding: "6px 10px",
+          marginBottom: "10px",
+          textAlign: "center",
+        }}
+      >
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.65rem",
+            color: "rgba(0,229,255,0.7)",
+          }}
+        >
+          📡 Watch Live:
+        </p>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "0.62rem",
+            color: "rgba(0,229,255,0.9)",
+            wordBreak: "break-all",
+          }}
+        >
+          {window.location.origin}/match/{match.matchId}
+        </p>
+      </div>
+      {/* Branding footer */}
+      <div
+        style={{
+          textAlign: "center",
+          padding: "10px 0 0",
+          borderTop: "1px solid rgba(255,255,255,0.1)",
+          marginTop: "10px",
+        }}
+      >
+        <p
+          style={{
+            fontSize: "0.7rem",
+            color: "rgba(255,255,255,0.45)",
+            margin: 0,
+          }}
+        >
+          CCB Scoring Pro
+        </p>
+        <p
+          style={{
+            fontSize: "0.7rem",
+            color: "rgba(255,255,255,0.45)",
+            margin: 0,
+          }}
+        >
+          Contact: 03418890677 | Managed by Shahzad Sultan
+        </p>
+      </div>
+    </div>
+  );
+
   // ─────────────────────────────────────────────────────────────
-  // LOCKED STATE
+  // LOCKED VIEW
   // ─────────────────────────────────────────────────────────────
 
   const lockedView = (
@@ -514,7 +958,16 @@ export default function PremiumTournament({
           <motion.div
             animate={{ scale: [1, 1.05, 1] }}
             transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY }}
-            style={{ fontSize: "48px", lineHeight: 1 }}
+            style={{
+              fontSize: "48px",
+              lineHeight: 1,
+              filter: "drop-shadow(0 0 12px rgba(255,215,0,0.5))",
+              boxShadow:
+                "0 0 20px rgba(255,215,0,0.4), 0 0 40px rgba(255,215,0,0.15)",
+              display: "inline-block",
+              borderRadius: "50%",
+              padding: "4px",
+            }}
           >
             💎
           </motion.div>
@@ -640,7 +1093,7 @@ export default function PremiumTournament({
             lineHeight: 1.5,
           }}
         >
-          Send payment and upload screenshot for verification
+          Payment send karein aur screenshot upload karein
         </p>
 
         {/* Upload button */}
@@ -650,7 +1103,6 @@ export default function PremiumTournament({
           accept="image/*"
           style={{ display: "none" }}
           onChange={handleScreenshotUpload}
-          data-ocid="premium.upload_button"
         />
 
         {!waitingApproval ? (
@@ -674,6 +1126,7 @@ export default function PremiumTournament({
               alignItems: "center",
               justifyContent: "center",
               gap: "8px",
+              minHeight: "44px",
               boxShadow: "0 0 20px rgba(255,215,0,0.2)",
             }}
           >
@@ -759,6 +1212,7 @@ export default function PremiumTournament({
               outline: "none",
               width: "100%",
               boxSizing: "border-box",
+              minHeight: "44px",
             }}
           />
           {codeError && (
@@ -791,6 +1245,7 @@ export default function PremiumTournament({
               fontWeight: 800,
               fontSize: "0.95rem",
               cursor: unlocking ? "not-allowed" : "pointer",
+              minHeight: "44px",
               boxShadow: unlocking ? "none" : "0 0 20px rgba(0,255,136,0.3)",
             }}
           >
@@ -830,6 +1285,7 @@ export default function PremiumTournament({
           display: "flex",
           alignItems: "center",
           gap: "10px",
+          boxShadow: "0 0 20px rgba(255,215,0,0.1)",
         }}
       >
         <span style={{ fontSize: "20px" }}>💎</span>
@@ -930,6 +1386,7 @@ export default function PremiumTournament({
             fontWeight: 800,
             fontSize: "1rem",
             cursor: "pointer",
+            minHeight: "52px",
             boxShadow: "0 0 20px rgba(255,215,0,0.2)",
             display: "flex",
             alignItems: "center",
@@ -960,7 +1417,7 @@ export default function PremiumTournament({
                 onClick={() => setActiveTab(tab)}
                 style={{
                   flex: 1,
-                  padding: "9px",
+                  padding: "10px",
                   borderRadius: "10px",
                   border:
                     activeTab === tab
@@ -975,6 +1432,7 @@ export default function PremiumTournament({
                   cursor: "pointer",
                   letterSpacing: "0.04em",
                   textTransform: "uppercase",
+                  minHeight: "44px",
                 }}
               >
                 {tab === "schedule"
@@ -1007,117 +1465,113 @@ export default function PremiumTournament({
                     : "1px solid rgba(255,255,255,0.1)",
                   borderRadius: "14px",
                   padding: "14px",
+                  overflow: "hidden",
                 }}
               >
-                {/* Match header */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <div>
-                    <span
-                      style={{
-                        fontSize: "0.68rem",
-                        color: "#ffd700",
-                        fontWeight: 700,
-                        background: "rgba(255,215,0,0.12)",
-                        borderRadius: "6px",
-                        padding: "2px 8px",
-                      }}
-                    >
-                      Match {match.matchNum}
-                    </span>
-                    {match.isManual && (
-                      <span
-                        style={{
-                          marginLeft: "6px",
-                          fontSize: "0.65rem",
-                          color: "#ffaa00",
-                          fontWeight: 700,
-                          background: "rgba(255,165,0,0.12)",
-                          borderRadius: "6px",
-                          padding: "2px 8px",
-                        }}
-                      >
-                        Manual
-                      </span>
-                    )}
-                  </div>
-                  {(match.date || match.time) && (
-                    <span
-                      style={{
-                        fontSize: "0.72rem",
-                        color: "rgba(255,255,255,0.4)",
-                      }}
-                    >
-                      {match.date} {match.time}
-                    </span>
-                  )}
-                </div>
+                {/* Scorecard block for completed matches (for export) */}
+                {match.status === "completed" && (
+                  <ScorecardBlock match={match} />
+                )}
 
-                {/* Teams */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: "10px",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "0.9rem",
-                      fontWeight: 700,
-                      color: "#ffffff",
-                      flex: 1,
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {match.homeTeamName}
-                  </span>
-                  {match.status === "completed" ? (
-                    <div style={{ textAlign: "center", padding: "0 8px" }}>
+                {/* Scheduled match header */}
+                {match.status === "scheduled" && (
+                  <>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      <div>
+                        <span
+                          style={{
+                            fontSize: "0.68rem",
+                            color: "#ffd700",
+                            fontWeight: 700,
+                            background: "rgba(255,215,0,0.12)",
+                            borderRadius: "6px",
+                            padding: "2px 8px",
+                          }}
+                        >
+                          Match {match.matchNum}
+                        </span>
+                        {match.isManual && (
+                          <span
+                            style={{
+                              marginLeft: "6px",
+                              fontSize: "0.65rem",
+                              color: "#ffaa00",
+                              fontWeight: 700,
+                              background: "rgba(255,165,0,0.12)",
+                              borderRadius: "6px",
+                              padding: "2px 8px",
+                            }}
+                          >
+                            Manual
+                          </span>
+                        )}
+                      </div>
+                      {(match.date || match.time) && (
+                        <span
+                          style={{
+                            fontSize: "0.72rem",
+                            color: "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          {match.date} {match.time}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Teams */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        marginBottom: "10px",
+                      }}
+                    >
                       <span
                         style={{
-                          color: "#00ff88",
-                          fontWeight: 800,
-                          fontSize: "1rem",
+                          fontSize: "0.9rem",
+                          fontWeight: 700,
+                          color: "#ffffff",
+                          flex: 1,
+                          wordBreak: "break-word",
                         }}
                       >
-                        {match.homeRuns} - {match.awayRuns}
+                        {match.homeTeamName}
+                      </span>
+                      <span
+                        style={{
+                          color: "rgba(255,215,0,0.7)",
+                          fontWeight: 700,
+                          fontSize: "0.75rem",
+                          padding: "0 8px",
+                        }}
+                      >
+                        vs
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.9rem",
+                          fontWeight: 700,
+                          color: "#ffffff",
+                          flex: 1,
+                          textAlign: "right",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {match.awayTeamName}
                       </span>
                     </div>
-                  ) : (
-                    <span
-                      style={{
-                        color: "rgba(255,215,0,0.7)",
-                        fontWeight: 700,
-                        fontSize: "0.75rem",
-                        padding: "0 8px",
-                      }}
-                    >
-                      vs
-                    </span>
-                  )}
-                  <span
-                    style={{
-                      fontSize: "0.9rem",
-                      fontWeight: 700,
-                      color: "#ffffff",
-                      flex: 1,
-                      textAlign: "right",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {match.awayTeamName}
-                  </span>
-                </div>
+                  </>
+                )}
 
-                {/* Action buttons */}
+                {/* Action buttons for scheduled matches */}
                 {activeTab === "schedule" && (
                   <div
                     style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
@@ -1135,7 +1589,7 @@ export default function PremiumTournament({
                       style={{
                         flex: 1,
                         minWidth: "80px",
-                        padding: "7px",
+                        padding: "10px 7px",
                         borderRadius: "8px",
                         border: "1px solid rgba(0,255,136,0.3)",
                         background: "rgba(0,255,136,0.1)",
@@ -1143,6 +1597,7 @@ export default function PremiumTournament({
                         fontWeight: 700,
                         fontSize: "0.72rem",
                         cursor: "pointer",
+                        minHeight: "40px",
                       }}
                     >
                       ✏️ Score
@@ -1161,7 +1616,7 @@ export default function PremiumTournament({
                       style={{
                         flex: 1,
                         minWidth: "80px",
-                        padding: "7px",
+                        padding: "10px 7px",
                         borderRadius: "8px",
                         border: "1px solid rgba(255,215,0,0.3)",
                         background: "rgba(255,215,0,0.08)",
@@ -1169,6 +1624,7 @@ export default function PremiumTournament({
                         fontWeight: 700,
                         fontSize: "0.72rem",
                         cursor: "pointer",
+                        minHeight: "40px",
                       }}
                     >
                       🕐 Time
@@ -1180,7 +1636,7 @@ export default function PremiumTournament({
                       whileTap={{ scale: 0.94 }}
                       onClick={() => handleSwapTeams(match.id)}
                       style={{
-                        padding: "7px 10px",
+                        padding: "10px 12px",
                         borderRadius: "8px",
                         border: "1px solid rgba(255,255,255,0.15)",
                         background: "transparent",
@@ -1188,6 +1644,7 @@ export default function PremiumTournament({
                         fontWeight: 700,
                         fontSize: "0.72rem",
                         cursor: "pointer",
+                        minHeight: "40px",
                       }}
                     >
                       ⇄
@@ -1200,17 +1657,21 @@ export default function PremiumTournament({
                       whileTap={{ scale: 0.94 }}
                       onClick={() => handleCopyLiveLink(match.matchId)}
                       style={{
-                        padding: "7px 10px",
+                        padding: "10px 12px",
                         borderRadius: "8px",
-                        border: "1px solid rgba(0,229,255,0.3)",
+                        border:
+                          copiedMatchId === match.matchId
+                            ? "1px solid rgba(0,229,255,0.5)"
+                            : "1px solid rgba(0,229,255,0.2)",
                         background:
                           copiedMatchId === match.matchId
                             ? "rgba(0,229,255,0.2)"
-                            : "rgba(0,229,255,0.08)",
+                            : "rgba(0,229,255,0.06)",
                         color: "#00e5ff",
                         fontWeight: 700,
                         fontSize: "0.72rem",
                         cursor: "pointer",
+                        minHeight: "40px",
                       }}
                     >
                       {copiedMatchId === match.matchId ? "✓" : "📡"}
@@ -1223,7 +1684,7 @@ export default function PremiumTournament({
                       whileTap={{ scale: 0.94 }}
                       onClick={() => handleDeleteMatch(match.id)}
                       style={{
-                        padding: "7px 10px",
+                        padding: "10px 12px",
                         borderRadius: "8px",
                         border: "1px solid rgba(255,68,68,0.3)",
                         background: "rgba(255,68,68,0.08)",
@@ -1231,6 +1692,7 @@ export default function PremiumTournament({
                         fontWeight: 700,
                         fontSize: "0.72rem",
                         cursor: "pointer",
+                        minHeight: "40px",
                       }}
                     >
                       🗑
@@ -1238,42 +1700,175 @@ export default function PremiumTournament({
                   </div>
                 )}
 
-                {/* Copy live link on completed */}
+                {/* Action buttons for completed matches */}
                 {activeTab === "results" && (
-                  <motion.button
-                    type="button"
-                    data-ocid={`premium.result.link.${idx + 1}`}
-                    whileTap={{ scale: 0.94 }}
-                    onClick={() => handleCopyLiveLink(match.matchId)}
+                  <div
                     style={{
-                      width: "100%",
-                      padding: "8px",
-                      borderRadius: "8px",
-                      border: "1px solid rgba(0,229,255,0.3)",
-                      background:
-                        copiedMatchId === match.matchId
-                          ? "rgba(0,229,255,0.2)"
-                          : "rgba(0,229,255,0.06)",
-                      color: "#00e5ff",
-                      fontWeight: 700,
-                      fontSize: "0.78rem",
-                      cursor: "pointer",
                       display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: "6px",
+                      flexDirection: "column",
+                      gap: "8px",
                     }}
                   >
-                    📡{" "}
-                    {copiedMatchId === match.matchId
-                      ? "Copied!"
-                      : "Copy Live Link"}
-                  </motion.button>
+                    {/* Copy live link */}
+                    <motion.button
+                      type="button"
+                      data-ocid={`premium.result.link.${idx + 1}`}
+                      whileTap={{ scale: 0.94 }}
+                      onClick={() => handleCopyLiveLink(match.matchId)}
+                      style={{
+                        width: "100%",
+                        padding: "10px",
+                        borderRadius: "8px",
+                        border: "1px solid rgba(0,229,255,0.3)",
+                        background:
+                          copiedMatchId === match.matchId
+                            ? "rgba(0,229,255,0.2)"
+                            : "rgba(0,229,255,0.06)",
+                        color: "#00e5ff",
+                        fontWeight: 700,
+                        fontSize: "0.78rem",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexDirection: "column" as const,
+                        gap: "2px",
+                        minHeight: "44px",
+                      }}
+                    >
+                      <span>
+                        📡{" "}
+                        {copiedMatchId === match.matchId
+                          ? "Copied!"
+                          : "Copy Live Link"}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: "0.6rem",
+                          color: "rgba(0,229,255,0.5)",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {window.location.origin}/match/{match.matchId}
+                      </span>
+                    </motion.button>
+
+                    {/* Export buttons row */}
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {/* PNG */}
+                      <motion.button
+                        type="button"
+                        data-ocid={`premium.result.png.${idx + 1}`}
+                        whileTap={{ scale: 0.94 }}
+                        disabled={exportingPngId === match.id}
+                        onClick={() => handleExportPng(match)}
+                        style={{
+                          flex: 1,
+                          padding: "10px 7px",
+                          borderRadius: "8px",
+                          border: "1px solid rgba(0,255,136,0.3)",
+                          background: "rgba(0,255,136,0.08)",
+                          color: "#00ff88",
+                          fontWeight: 700,
+                          fontSize: "0.72rem",
+                          cursor:
+                            exportingPngId === match.id
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity: exportingPngId === match.id ? 0.6 : 1,
+                          minHeight: "40px",
+                        }}
+                      >
+                        {exportingPngId === match.id ? "⏳" : "📸"} PNG
+                      </motion.button>
+
+                      {/* PDF */}
+                      <motion.button
+                        type="button"
+                        data-ocid={`premium.result.pdf.${idx + 1}`}
+                        whileTap={{ scale: 0.94 }}
+                        disabled={exportingPdfId === match.id}
+                        onClick={() => handleExportPdf(match)}
+                        style={{
+                          flex: 1,
+                          padding: "10px 7px",
+                          borderRadius: "8px",
+                          border: "1px solid rgba(255,215,0,0.3)",
+                          background: "rgba(255,215,0,0.08)",
+                          color: "#ffd700",
+                          fontWeight: 700,
+                          fontSize: "0.72rem",
+                          cursor:
+                            exportingPdfId === match.id
+                              ? "not-allowed"
+                              : "pointer",
+                          opacity: exportingPdfId === match.id ? 0.6 : 1,
+                          minHeight: "40px",
+                        }}
+                      >
+                        {exportingPdfId === match.id ? "⏳" : "📄"} PDF
+                      </motion.button>
+
+                      {/* Share */}
+                      <motion.button
+                        type="button"
+                        data-ocid={`premium.result.share.${idx + 1}`}
+                        whileTap={{ scale: 0.94 }}
+                        disabled={sharingId === match.id}
+                        onClick={() => handleShare(match)}
+                        style={{
+                          flex: 1,
+                          padding: "10px 7px",
+                          borderRadius: "8px",
+                          border: "1px solid rgba(255,100,255,0.3)",
+                          background: "rgba(255,100,255,0.08)",
+                          color: "#ff6ef7",
+                          fontWeight: 700,
+                          fontSize: "0.72rem",
+                          cursor:
+                            sharingId === match.id ? "not-allowed" : "pointer",
+                          opacity: sharingId === match.id ? 0.6 : 1,
+                          minHeight: "40px",
+                        }}
+                      >
+                        {sharingId === match.id ? "⏳" : "📤"} Share
+                      </motion.button>
+                    </div>
+                  </div>
                 )}
               </motion.div>
             ))}
           </div>
         </div>
+      )}
+
+      {/* Add Match button — always visible for premium users with a tournament */}
+      {userData.tournamentName && (
+        <motion.button
+          type="button"
+          data-ocid="premium.add_match.primary_button"
+          whileTap={{ scale: 0.96 }}
+          onClick={() => setShowAddMatch(true)}
+          style={{
+            width: "100%",
+            padding: "13px",
+            borderRadius: "12px",
+            border: "1.5px dashed rgba(0,255,136,0.3)",
+            background: "rgba(0,255,136,0.04)",
+            color: "rgba(0,255,136,0.7)",
+            fontWeight: 700,
+            fontSize: "0.88rem",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            minHeight: "46px",
+          }}
+        >
+          <Plus size={16} />
+          Add Match
+        </motion.button>
       )}
 
       {/* Empty state */}
@@ -1287,7 +1882,7 @@ export default function PremiumTournament({
           }}
         >
           <p style={{ fontSize: "2rem" }}>📋</p>
-          <p style={{ fontSize: "0.85rem" }}>No matches in schedule yet</p>
+          <p style={{ fontSize: "0.85rem" }}>No matches yet. Add one above!</p>
         </div>
       )}
     </motion.div>
@@ -1345,6 +1940,8 @@ export default function PremiumTournament({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            minWidth: "36px",
+            minHeight: "36px",
           }}
         >
           <ArrowLeft size={18} />
@@ -1394,6 +1991,8 @@ export default function PremiumTournament({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            minWidth: "36px",
+            minHeight: "36px",
           }}
           title="Admin Settings"
         >
@@ -1467,7 +2066,6 @@ export default function PremiumTournament({
                   gap: "6px",
                 }}
               >
-                {/* Default Teams */}
                 {defaultTeams.length > 0 && (
                   <p
                     style={{
@@ -1535,7 +2133,6 @@ export default function PremiumTournament({
                     </span>
                   </label>
                 ))}
-                {/* My Teams */}
                 {myTeams.length > 0 && (
                   <p
                     style={{
@@ -1642,6 +2239,266 @@ export default function PremiumTournament({
               }}
             >
               Create 🏆
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Match Dialog */}
+      <Dialog open={showAddMatch} onOpenChange={setShowAddMatch}>
+        <DialogContent
+          style={{
+            background: "#0d0d0d",
+            border: "1.5px solid rgba(0,255,136,0.25)",
+            color: "#ffffff",
+            maxWidth: "360px",
+            width: "calc(100vw - 32px)",
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle style={{ color: "#00ff88" }}>➕ Add Match</DialogTitle>
+          </DialogHeader>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "12px",
+              padding: "4px 0",
+            }}
+          >
+            <div>
+              <Label
+                style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem" }}
+              >
+                Home Team
+              </Label>
+              <select
+                data-ocid="premium.add_match_home.select"
+                value={addMatchHomeId}
+                onChange={(e) => setAddMatchHomeId(e.target.value)}
+                style={{
+                  marginTop: "6px",
+                  width: "100%",
+                  background: "rgba(255,255,255,0.07)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: "8px",
+                  color: addMatchHomeId ? "#ffffff" : "rgba(255,255,255,0.4)",
+                  padding: "10px 12px",
+                  fontSize: "0.88rem",
+                  outline: "none",
+                  minHeight: "42px",
+                }}
+              >
+                <option value="" style={{ background: "#0d0d0d" }}>
+                  Select home team...
+                </option>
+                {userData.teams.length > 0 ? (
+                  <>
+                    <optgroup
+                      label="Tournament Teams"
+                      style={{ background: "#0d0d0d" }}
+                    >
+                      {userData.teams.map((t) => (
+                        <option
+                          key={t.id}
+                          value={t.id}
+                          style={{ background: "#0d0d0d" }}
+                        >
+                          {t.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </>
+                ) : (
+                  <>
+                    {defaultTeams.length > 0 && (
+                      <optgroup
+                        label="Default Teams"
+                        style={{ background: "#0d0d0d" }}
+                      >
+                        {defaultTeams.map((t) => (
+                          <option
+                            key={t.id}
+                            value={t.id}
+                            style={{ background: "#0d0d0d" }}
+                          >
+                            {t.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {myTeams.length > 0 && (
+                      <optgroup
+                        label="My Teams"
+                        style={{ background: "#0d0d0d" }}
+                      >
+                        {myTeams.map((t) => (
+                          <option
+                            key={t.id}
+                            value={t.id}
+                            style={{ background: "#0d0d0d" }}
+                          >
+                            {t.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                )}
+              </select>
+            </div>
+            <div>
+              <Label
+                style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem" }}
+              >
+                Away Team
+              </Label>
+              <select
+                data-ocid="premium.add_match_away.select"
+                value={addMatchAwayId}
+                onChange={(e) => setAddMatchAwayId(e.target.value)}
+                style={{
+                  marginTop: "6px",
+                  width: "100%",
+                  background: "rgba(255,255,255,0.07)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: "8px",
+                  color: addMatchAwayId ? "#ffffff" : "rgba(255,255,255,0.4)",
+                  padding: "10px 12px",
+                  fontSize: "0.88rem",
+                  outline: "none",
+                  minHeight: "42px",
+                }}
+              >
+                <option value="" style={{ background: "#0d0d0d" }}>
+                  Select away team...
+                </option>
+                {userData.teams.length > 0 ? (
+                  <optgroup
+                    label="Tournament Teams"
+                    style={{ background: "#0d0d0d" }}
+                  >
+                    {userData.teams.map((t) => (
+                      <option
+                        key={t.id}
+                        value={t.id}
+                        style={{ background: "#0d0d0d" }}
+                      >
+                        {t.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : (
+                  <>
+                    {defaultTeams.length > 0 && (
+                      <optgroup
+                        label="Default Teams"
+                        style={{ background: "#0d0d0d" }}
+                      >
+                        {defaultTeams.map((t) => (
+                          <option
+                            key={t.id}
+                            value={t.id}
+                            style={{ background: "#0d0d0d" }}
+                          >
+                            {t.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {myTeams.length > 0 && (
+                      <optgroup
+                        label="My Teams"
+                        style={{ background: "#0d0d0d" }}
+                      >
+                        {myTeams.map((t) => (
+                          <option
+                            key={t.id}
+                            value={t.id}
+                            style={{ background: "#0d0d0d" }}
+                          >
+                            {t.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                )}
+              </select>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "10px",
+              }}
+            >
+              <div>
+                <Label
+                  style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem" }}
+                >
+                  Date (optional)
+                </Label>
+                <Input
+                  data-ocid="premium.add_match_date.input"
+                  type="date"
+                  value={addMatchDate}
+                  onChange={(e) => setAddMatchDate(e.target.value)}
+                  style={{
+                    marginTop: "6px",
+                    background: "rgba(255,255,255,0.07)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    color: "#ffffff",
+                    colorScheme: "dark",
+                  }}
+                />
+              </div>
+              <div>
+                <Label
+                  style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.8rem" }}
+                >
+                  Time (optional)
+                </Label>
+                <Input
+                  data-ocid="premium.add_match_time.input"
+                  type="time"
+                  value={addMatchTime}
+                  onChange={(e) => setAddMatchTime(e.target.value)}
+                  style={{
+                    marginTop: "6px",
+                    background: "rgba(255,255,255,0.07)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    color: "#ffffff",
+                    colorScheme: "dark",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter style={{ gap: "8px", marginTop: "4px" }}>
+            <Button
+              data-ocid="premium.add_match.cancel_button"
+              variant="outline"
+              onClick={() => setShowAddMatch(false)}
+              style={{
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "transparent",
+                color: "rgba(255,255,255,0.6)",
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              data-ocid="premium.add_match.submit_button"
+              onClick={handleAddMatch}
+              style={{
+                background: "linear-gradient(135deg, #00ff88, #00cc66)",
+                color: "#000",
+                fontWeight: 800,
+                border: "none",
+              }}
+            >
+              Add Match ➕
             </Button>
           </DialogFooter>
         </DialogContent>
